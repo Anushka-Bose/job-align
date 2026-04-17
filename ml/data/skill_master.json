@@ -1,0 +1,16 @@
+{
+  "Programming": {
+    "Java": ["java"],
+    "C": ["c"],
+    "JavaScript": ["javascript", "js"]
+  },
+  "Web Development": {
+    "HTML": ["html"],
+    "CSS": ["css"],
+    "Spring": ["spring", "spring boot"]
+  },
+  "Art & Design": {
+    "Sketching": ["sketching", "art"],
+    "Illustration": ["illustration", "carving"]
+  }
+}

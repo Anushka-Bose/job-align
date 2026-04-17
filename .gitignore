@@ -2,7 +2,10 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+#ML
+ml/analysis/resume_score.py
+ml/analysis/skill_extractor.py
+ml/parse
 # C extensions
 *.so
 

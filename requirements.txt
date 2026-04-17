@@ -1,0 +1,23 @@
+# Core API Framework
+fastapi
+uvicorn
+python-multipart
+
+# PDF Processing
+pymupdf
+
+# NLP Processing
+spacy
+
+# Embedding Model
+sentence-transformers
+
+# Similarity & ML Utilities
+scikit-learn
+numpy
+
+# Data Validation
+pydantic
+
+# Optional (Environment Management)
+python-dotenv
