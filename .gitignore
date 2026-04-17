@@ -6,6 +6,7 @@ __pycache__/
 ml/analysis/resume_score.py
 ml/analysis/skill_extractor.py
 ml/parse
+ml/data
 # C extensions
 *.so
 
