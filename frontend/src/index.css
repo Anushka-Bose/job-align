@@ -1,0 +1,276 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    font-family: "Segoe UI", "Inter", sans-serif;
+    background-color: #020617;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top, rgba(45, 212, 191, 0.12), transparent 28%),
+      linear-gradient(180deg, #020617 0%, #0f172a 35%, #111827 100%);
+    color: #f8fafc;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: rgba(45, 212, 191, 0.35);
+    color: #f8fafc;
+  }
+}
+
+@keyframes scan {
+  0% {
+    top: -10%;
+  }
+  100% {
+    top: 110%;
+  }
+}
+
+@keyframes scan-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scaleX(0.96);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes scan-spark {
+  0%,
+  100% {
+    opacity: 0.1;
+    transform: translateY(-10%) scale(0.96);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes panel-breathe {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.06);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px rgba(45, 212, 191, 0.16);
+  }
+}
+
+@layer components {
+  .profile-insight-card .scan-line {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    top: -10%;
+    height: 2px;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.95), transparent);
+    box-shadow: 0 0 18px rgba(45, 212, 191, 0.7);
+    animation: scan 3.2s linear infinite;
+    z-index: 3;
+  }
+
+  .profile-insight-card .scan-glow {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: -10%;
+    height: 88px;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to bottom,
+      rgba(45, 212, 191, 0.34),
+      rgba(45, 212, 191, 0.16),
+      transparent
+    );
+    filter: blur(14px);
+    animation:
+      scan 3.2s linear infinite,
+      scan-glow-pulse 2.4s ease-in-out infinite;
+    z-index: 2;
+  }
+
+  .profile-insight-card .scan-spark {
+    position: absolute;
+    left: 20%;
+    right: 20%;
+    top: -10%;
+    height: 120px;
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at center, rgba(125, 211, 252, 0.2), transparent 48%),
+      radial-gradient(circle at center, rgba(45, 212, 191, 0.22), transparent 62%);
+    filter: blur(22px);
+    animation:
+      scan 3.2s linear infinite,
+      scan-spark 3.2s ease-in-out infinite;
+    z-index: 1;
+  }
+
+  .profile-insight-card .status-panel,
+  .profile-insight-card .data-panel {
+    position: relative;
+    overflow: hidden;
+    animation: panel-breathe 2.8s ease-in-out infinite;
+  }
+
+  .profile-insight-card .resume-preview {
+    position: relative;
+    z-index: 0;
+  }
+
+  .profile-insight-card .resume-preview::after {
+    content: "";
+    position: absolute;
+    inset: 12px;
+    border-radius: 1.2rem;
+    background: linear-gradient(
+      180deg,
+      rgba(2, 6, 23, 0.02) 0%,
+      rgba(2, 6, 23, 0.18) 35%,
+      rgba(2, 6, 23, 0.42) 100%
+    );
+    pointer-events: none;
+  }
+
+  .profile-insight-card .insight-chip {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+    animation: chip-float 4.6s ease-in-out infinite;
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    transition:
+      opacity 0.45s ease,
+      transform 0.45s ease;
+  }
+
+  .profile-insight-card .insight-chip.is-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  .profile-insight-card .resume-preview .insight-chip:nth-of-type(3) {
+    animation-duration: 5.2s;
+    animation-delay: 0.3s;
+  }
+
+  .profile-insight-card .resume-preview .insight-chip:nth-of-type(4) {
+    animation-duration: 5.6s;
+    animation-delay: 0.7s;
+  }
+
+  .profile-insight-card .resume-preview .insight-chip:nth-of-type(5) {
+    animation-duration: 4.8s;
+    animation-delay: 0.2s;
+  }
+
+  .profile-insight-card .status-panel::after,
+  .profile-insight-card .data-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      115deg,
+      transparent 15%,
+      rgba(255, 255, 255, 0.04) 40%,
+      transparent 65%
+    );
+    transform: translateX(-120%);
+    animation: shimmer 4.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .profile-insight-card .status-dot {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.6);
+    animation: pulse 1.8s ease-out infinite;
+  }
+
+  .profile-insight-card .score-pill {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .profile-insight-card .score-pill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      115deg,
+      transparent 15%,
+      rgba(255, 255, 255, 0.08) 45%,
+      transparent 72%
+    );
+    transform: translateX(-120%);
+    animation: shimmer 2.8s ease-in-out infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes shimmer {
+  0%,
+  100% {
+    transform: translateX(-120%);
+  }
+  45%,
+  60% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(45, 212, 191, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(45, 212, 191, 0);
+  }
+}
+
+@keyframes chip-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
