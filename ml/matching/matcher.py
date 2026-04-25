@@ -1,6 +1,18 @@
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict, Any
-from ml.embeddings.embedder import embed_text
-from ml.matching.similarity import compute_similarity
+from ml.embeddings.embeddings import embed_text
+
+def compute_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors using sklearn."""
+    # Ensure vectors are 2D arrays (1, n_features) for sklearn
+    if vec1.ndim == 1:
+        vec1 = vec1.reshape(1, -1)
+    if vec2.ndim == 1:
+        vec2 = vec2.reshape(1, -1)
+        
+    sim = cosine_similarity(vec1, vec2)
+    return float(sim[0][0])
 
 def match_jobs(resume_text: str, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Embed resume and jobs, compute similarity, and return sorted jobs."""

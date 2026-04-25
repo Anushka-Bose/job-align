@@ -1,6 +1,6 @@
 from typing import List
-from ml.embeddings.embedder import embed_text
-from ml.matching.similarity import compute_similarity
+from ml.embeddings.embeddings import embed_text
+from ml.matching.matcher import compute_similarity
 
 # Small seed list to prevent hardcoding big arrays
 SEED_SKILLS = [

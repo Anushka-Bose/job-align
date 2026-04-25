@@ -1,5 +1,33 @@
 from typing import List, Dict, Any
-from ml.feedback.suggestion_engine import generate_suggestion
+import numpy as np
+from ml.embeddings.embeddings import embed_sentences
+from ml.matching.matcher import compute_similarity
+
+def score_sentences(sentences: List[str], job_embedding: np.ndarray) -> List[float]:
+    """Score each sentence against the job embedding for relevance."""
+    if not sentences:
+        return []
+        
+    sentence_embeddings = embed_sentences(sentences)
+    
+    scores = []
+    for sent_emb in sentence_embeddings:
+        score = compute_similarity(sent_emb, job_embedding)
+        scores.append(score)
+        
+    return scores
+
+def generate_suggestion(sentence: str, missing_skills: List[str]) -> str:
+    """Generate a suggestion for a red sentence based on missing skills."""
+    if not missing_skills:
+        return "Add more metrics or specific achievements to strengthen your impact."
+        
+    # Simple rule-based suggestion
+    suggestion = (
+        f"Consider revising this part to incorporate missing relevant skills "
+        f"like: {', '.join(missing_skills[:3])}."
+    )
+    return suggestion
 
 def generate_highlights(sentences: List[str], scores: List[float], missing_skills: List[str]) -> List[Dict[str, str]]:
     """Generate red/yellow/green highlights and suggestions mapping.

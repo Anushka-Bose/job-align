@@ -7,16 +7,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 from typing import List, Dict, Any
 
-from ml.preprocessing.cleaner import clean_text
-from ml.preprocessing.chunker import chunk_sentences
-from ml.preprocessing.pdf_to_text import extract_text
+from ml.preprocessing.preprocess import clean_text, chunk_sentences, extract_text
 from ml.extraction.skill_extractor import extract_skills
-from ml.matching.job_matcher import match_jobs
-from ml.scoring.skill_gap import compute_skill_gap
-from ml.scoring.resume_score import compute_resume_score
-from ml.embeddings.embedder import embed_text
-from ml.feedback.sentence_scoring import score_sentences
-from ml.feedback.highlight_engine import generate_highlights
+from ml.matching.matcher import match_jobs
+from ml.scoring.scoring import compute_skill_gap, compute_resume_score
+from ml.embeddings.embeddings import embed_text
+from ml.feedback.feedback import score_sentences, generate_highlights
 
 def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Execute the full ML pipeline for resume intelligence."""

@@ -160,7 +160,7 @@ def run_pipeline(file_path):
 
 
 # ---------------- DIRECT TEST ---------------- #
-if _name_ == "_main_":
+if __name__ == "__main__":
     file_path = r"D:\job-align\ml\data\raw\ai_resume_test.pdf"
 
     result = run_pipeline(file_path)
