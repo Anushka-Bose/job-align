@@ -103,6 +103,8 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
         else:
             label = "RED"
             suggestion = rewritten_map.get(idx, "")
+            if suggestion.strip().lower() == sentence.strip().lower():
+                suggestion = ""
         highlights.append({
             "text": sentence,
             "label": label,

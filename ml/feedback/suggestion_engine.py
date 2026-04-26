@@ -10,8 +10,16 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 MODEL_NAME = "gemini-2.5-flash"
 BACKOFF_SECONDS = [5, 10, 20]
 BATCH_SIZE = 8
+_llm_quota_exhausted = False
 
 # ================= HELPERS =================
+def _is_hard_quota_exhausted(error: Exception) -> bool:
+    msg = str(error).lower()
+    return (
+        "resource_exhausted" in msg or
+        "429" in msg or
+        "quota exceeded" in msg
+    )
 
 def _strip_code_fences(content: str) -> str:
     text = (content or "").strip()
@@ -58,6 +66,9 @@ def _is_valid_rewrite(original: str, candidate: str) -> bool:
 
 
 def _call_with_retry(prompt: str) -> str:
+    global _llm_quota_exhausted
+    if _llm_quota_exhausted:
+        raise RuntimeError("Gemini hard quota exhausted for current process.")
     last_error = None
 
     for attempt in range(len(BACKOFF_SECONDS) + 1):
@@ -70,6 +81,9 @@ def _call_with_retry(prompt: str) -> str:
 
         except Exception as e:
             last_error = e
+            if _is_hard_quota_exhausted(e):
+                _llm_quota_exhausted = True
+                break
 
             if attempt >= len(BACKOFF_SECONDS):
                 break

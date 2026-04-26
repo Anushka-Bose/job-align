@@ -8,6 +8,7 @@ from google import genai
 # Setup Gemini model
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 BACKOFF_SECONDS = [5, 10, 20]
+_llm_quota_exhausted = False
 EXPECTED_KEYS = [
     "Impact",
     "Problem Solving",
@@ -55,6 +56,14 @@ def _directional_fallback(clusters: List[str]) -> dict:
     }
     return fallback
 
+def _is_hard_quota_exhausted(error: Exception) -> bool:
+    msg = str(error).lower()
+    return (
+        "resource_exhausted" in msg or
+        "429" in msg or
+        "quota exceeded" in msg
+    )
+
 def extract_competencies(clusters: List[str]) -> dict:
     """Extract 6 Core Competencies dynamically using Gemini LLM over clustered resume chunks."""
     if not clusters:
@@ -77,7 +86,10 @@ Return ONLY a valid JSON dictionary where each key is the competency name, and t
 Text:
 "{combined_text[:6000]}"
 """
+    global _llm_quota_exhausted
     fallback = _directional_fallback(clusters)
+    if _llm_quota_exhausted:
+        return fallback
     last_error = None
     for attempt in range(len(BACKOFF_SECONDS) + 1):
         try:
@@ -99,8 +111,10 @@ Text:
             return normalized
         except Exception as e:
             last_error = e
+            if _is_hard_quota_exhausted(e):
+                _llm_quota_exhausted = True
+                break
             if attempt >= len(BACKOFF_SECONDS):
                 break
             time.sleep(BACKOFF_SECONDS[attempt])
-    print(f"Error extracting competencies via LLM: {last_error}")
     return fallback
