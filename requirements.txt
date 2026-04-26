@@ -21,3 +21,4 @@ pydantic
 
 # Optional (Environment Management)
 python-dotenv
+google-generativeai

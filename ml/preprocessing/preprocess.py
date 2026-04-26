@@ -87,20 +87,3 @@ def split_sections(text: str) -> Dict[str, List[str]]:
             sections[current_section].append(stripped)
             
     return sections
-
-def is_useful_sentence(sentence: str) -> bool:
-    """Filter out useless or boilerplate sentences."""
-    s = sentence.lower()
-
-    # Apply < 5 words rule
-    if len(sentence.split()) < 5:
-        return False
-
-    ignore_keywords = [
-        "name", "contact", "email", "address",
-        "father", "mother", "dob", "date of birth",
-        "nationality", "languages", "references",
-        "declaration", "signature"
-    ]
-
-    return not any(k in s for k in ignore_keywords)

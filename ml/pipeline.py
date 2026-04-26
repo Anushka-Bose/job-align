@@ -1,5 +1,8 @@
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Add the project root to sys.path if needed
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -8,11 +11,13 @@ import json
 from typing import List, Dict, Any
 
 from ml.preprocessing.preprocess import clean_text, chunk_sentences, extract_text
+from ml.preprocessing.filter import filter_relevant_lines, is_useful_sentence
 from ml.extraction.skill_extractor import extract_skills
 from ml.matching.matcher import match_jobs
 from ml.scoring.scoring import compute_skill_gap, compute_resume_score
 from ml.embeddings.embeddings import embed_text
-from ml.feedback.feedback import score_sentences, generate_highlights
+from ml.feedback.sentence_scoring import score_sentences
+from ml.feedback.highlight_engine import generate_highlights
 
 def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Execute the full ML pipeline for resume intelligence."""
@@ -21,6 +26,11 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
     
     # 2. Chunk Sentences
     sentences = chunk_sentences(cleaned_resume)
+    sentences = [s for s in sentences if is_useful_sentence(s)]
+    
+    # print("Sentences after filtering:", len(sentences))
+    # for s in sentences[:5]:
+    #     print(s)
     
     # 3. Extract Skills (Resume)
     resume_skills = extract_skills(cleaned_resume)
@@ -47,15 +57,17 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
     if not job_skills:
         skill_match_frac = 1.0 # default if job has no specific skills
     else:
-        overlapping = set(resume_skills).intersection(set(job_skills))
-        skill_match_frac = len(overlapping) / len(job_skills)
+        # Use semantic gap result instead of exact intersection
+        matched_count = len(job_skills) - len(missing_skills)
+        skill_match_frac = max(0.0, matched_count / len(job_skills))
         
     resume_score = compute_resume_score(skill_match_frac, top_job.get('similarity_score', 0.0))
     
     # 7. Generate Highlights
-    job_emb = embed_text(clean_text(top_job.get('description', '')))
+    job_desc = top_job.get('description', '')
+    job_emb = embed_text(clean_text(job_desc))
     sentence_scores = score_sentences(sentences, job_emb)
-    highlights = generate_highlights(sentences, sentence_scores, missing_skills)
+    highlights = generate_highlights(sentences, sentence_scores, missing_skills[:3], job_desc)
     
     return {
         "resume_score": resume_score,

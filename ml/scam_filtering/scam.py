@@ -5,6 +5,7 @@ import json
 # Load .env
 from dotenv import load_dotenv
 load_dotenv()
+from google import genai
 
 # Optional imports
 try:
@@ -85,7 +86,6 @@ def check_structure(text):
 
 
 # ---------------- LLM ANALYSIS ---------------- #
-from google import genai
 
 def analyze_with_llm(text):
     api_key = os.environ.get("GEMINI_API_KEY")

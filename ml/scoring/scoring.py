@@ -1,26 +1,32 @@
 from typing import List
+from ml.embeddings.embeddings import embed_text
+from ml.matching.matcher import compute_similarity
 
-def compute_resume_score(skill_match: float, similarity_score: float) -> int:
-    """Compute overall resume score out of 100.
+def compute_resume_score(competency_scores: dict, similarity_score: float) -> int:
+    """Compute overall resume score out of 100 based on competencies and vectors.
     
-    Formula: 0.6 * skill_match + 0.4 * similarity
+    Formula: 0.5 * avg_competency_score + 0.5 * similarity_score
     """
-    # Ensure inputs are bound to [0.0, 1.0]
-    skill_match = max(0.0, min(1.0, skill_match))
+    if not competency_scores:
+        avg_comp = 0.5
+    else:
+        avg_comp = sum(competency_scores.values()) / len(competency_scores) / 100.0
+        
+    avg_comp = max(0.0, min(1.0, avg_comp))
     similarity_score = max(0.0, min(1.0, similarity_score))
     
-    score = (0.6 * skill_match) + (0.4 * similarity_score)
-    
-    # Scale to 100
+    score = (0.5 * avg_comp) + (0.5 * similarity_score)
     return int(score * 100)
 
-def compute_skill_gap(resume_skills: List[str], job_skills: List[str]) -> List[str]:
-    """Compute which job skills are missing from the resume skills."""
-    resume_skills_lower = {skill.lower() for skill in resume_skills}
-    missing_skills = []
-    
-    for skill in job_skills:
-        if skill.lower() not in resume_skills_lower:
-            missing_skills.append(skill)
+def compute_missing_competencies(competency_scores: dict, threshold: int = 60) -> List[str]:
+    """Identify weak competencies (below threshold)."""
+    weak_competencies = []
+    for comp, score in competency_scores.items():
+        if score < threshold:
+            weak_competencies.append(comp)
             
-    return missing_skills
+    # Default fallback to ensure we prompt for impact if everything is magically high but not perfect
+    if not weak_competencies:
+        weak_competencies.append("Impact")
+        
+    return weak_competencies
