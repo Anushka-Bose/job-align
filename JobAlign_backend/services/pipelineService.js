@@ -3,12 +3,11 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { extractSkills, fetchJobsFromApi } from "./jobService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
-const ML_CLI_PATH = path.join(PROJECT_ROOT, "ml", "pipeline_cli.py");
-const REMOTIVE_API_URL = process.env.REMOTIVE_API_URL || "https://remotive.com/api/remote-jobs";
 const BUNDLED_PYTHON_PATH = path.join(
   process.env.USERPROFILE || "C:\\Users\\91983",
   ".cache",
@@ -44,30 +43,65 @@ const pythonCandidates = (() => {
   return candidates;
 })();
 
-const stripHtml = (value = "") =>
-  String(value)
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
-    .trim();
+const DEFAULT_SEARCH_KEYWORDS = [
+  "software developer",
+  "backend developer",
+  "frontend developer",
+  "full stack developer",
+];
+const DEFAULT_PREFERRED_LOCATION = process.env.DEFAULT_JOB_LOCATION || "India";
 
-const normalizeJob = (job, query) => ({
-  id: job.id || `${query}-${job.title || "job"}`,
-  title: job.title || "Untitled role",
-  company: job.company_name || "Unknown company",
-  location: job.candidate_required_location || "Remote",
-  type: job.job_type || "remote",
-  description: stripHtml(job.description),
-  redirect_url: job.url || null,
-  source: "remotive",
-  search_query: query,
-});
+const uniqueValues = (values = []) => [...new Set(values.filter(Boolean))];
+
+const parseJsonFromStdout = (stdout = "") => {
+  const trimmed = String(stdout || "").trim();
+  if (!trimmed) {
+    throw new Error("Pipeline returned no output.");
+  }
+
+  const lines = trimmed
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      return JSON.parse(lines[index]);
+    } catch {
+      // Keep scanning upward until we find the JSON payload.
+    }
+  }
+
+  throw new Error(`Invalid JSON returned by pipeline: ${trimmed}`);
+};
+
+const buildSearchKeywords = (rawText = "") => {
+  const resumeSkills = extractSkills(rawText);
+
+  if (!resumeSkills.length) {
+    return {
+      resumeSkills: [],
+      searchKeywords: DEFAULT_SEARCH_KEYWORDS,
+    };
+  }
+
+  const searchKeywords = uniqueValues([
+    resumeSkills.slice(0, 3).join(" "),
+    ...resumeSkills.slice(0, 5).map((skill) => `${skill} developer`),
+    ...resumeSkills.slice(0, 2).map((skill) => `${skill} engineer`),
+  ]).slice(0, 5);
+
+  return {
+    resumeSkills,
+    searchKeywords: searchKeywords.length ? searchKeywords : DEFAULT_SEARCH_KEYWORDS,
+  };
+};
 
 const runPythonCommand = (command, args) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: PROJECT_ROOT,
+      env: { ...process.env },
       windowsHide: true,
     });
 
@@ -93,101 +127,134 @@ const runPythonCommand = (command, args) =>
       }
 
       try {
-        resolve(JSON.parse(stdout));
+        resolve(parseJsonFromStdout(stdout));
       } catch (error) {
-        reject(new Error(`Invalid JSON returned by pipeline: ${stdout}`));
+        reject(error);
       }
     });
   });
 
-const runPythonPipeline = async (args) => {
+const runPythonPipeline = async ({ filePath, rawText, jobs }) => {
+  const pythonScript = `
+import json
+import sys
+import types
+from pathlib import Path
+
+
+def _install_google_genai_compat():
+    try:
+        from google import genai  # noqa: F401
+        return
+    except Exception:
+        pass
+
+    try:
+        import google.generativeai as legacy_genai
+        import google
+    except Exception:
+        return
+
+    class _CompatModels:
+        def __init__(self, api_key):
+            legacy_genai.configure(api_key=api_key)
+
+        def generate_content(self, model, contents):
+            response = legacy_genai.GenerativeModel(model).generate_content(contents)
+            return types.SimpleNamespace(text=getattr(response, "text", "") or "")
+
+    class _CompatClient:
+        def __init__(self, api_key=None):
+            self.models = _CompatModels(api_key)
+
+    compat_module = types.ModuleType("google.genai")
+    compat_module.Client = _CompatClient
+    sys.modules["google.genai"] = compat_module
+    google.genai = compat_module
+
+
+_install_google_genai_compat()
+
+from ml.pipeline import process_resume_pdf, run_pipeline
+
+jobs = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+raw_text = Path(sys.argv[2]).read_text(encoding="utf-8")
+file_path = sys.argv[3]
+
+try:
+    if raw_text.strip():
+        result = run_pipeline(raw_text, jobs)
+    else:
+        result = process_resume_pdf(file_path, jobs)
+except Exception as exc:
+    result = {"error": f"{type(exc).__name__}: {exc}"}
+
+print(json.dumps(result))
+`.trim();
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "job-align-pipeline-"));
+  const jobsPath = path.join(tempDir, "jobs.json");
+  const resumeTextPath = path.join(tempDir, "resume.txt");
   let lastError = null;
 
-  for (const candidate of pythonCandidates) {
-    try {
-      return await runPythonCommand(candidate.command, [...candidate.prefixArgs, ML_CLI_PATH, ...args]);
-    } catch (error) {
-      const message = String(error?.message || "");
-      if (
-        message.includes("ENOENT") ||
-        message.includes("not found") ||
-        message.includes("is not recognized") ||
-        message.includes("No installed Python found")
-      ) {
-        lastError = error;
-        continue;
+  try {
+    await fs.writeFile(jobsPath, JSON.stringify(jobs || []), "utf-8");
+    await fs.writeFile(resumeTextPath, rawText || "", "utf-8");
+
+    for (const candidate of pythonCandidates) {
+      try {
+        return await runPythonCommand(candidate.command, [
+          ...candidate.prefixArgs,
+          "-c",
+          pythonScript,
+          jobsPath,
+          resumeTextPath,
+          filePath || "",
+        ]);
+      } catch (error) {
+        const message = String(error?.message || "");
+        if (
+          message.includes("ENOENT") ||
+          message.includes("not found") ||
+          message.includes("is not recognized") ||
+          message.includes("No installed Python found")
+        ) {
+          lastError = error;
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
   }
 
   throw lastError || new Error("Python executable not found.");
 };
 
-const fetchJobsForKeywords = async (keywords) => {
-  const uniqueJobs = new Map();
-
-  for (const keyword of keywords) {
-    const url = new URL(REMOTIVE_API_URL);
-    url.searchParams.set("search", keyword);
-    url.searchParams.set("limit", "8");
-
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Job API request failed with status ${response.status}`);
-    }
-
-    const payload = await response.json();
-    for (const job of payload.jobs || []) {
-      const normalized = normalizeJob(job, keyword);
-      uniqueJobs.set(String(normalized.id), normalized);
-    }
-  }
-
-  return Array.from(uniqueJobs.values());
-};
-
 export const runResumePipeline = async (filePath, rawText = "") => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "job-align-"));
-  const jobsPath = path.join(tempDir, "jobs.json");
-  const resumeTextPath = path.join(tempDir, "resume.txt");
+  const { resumeSkills, searchKeywords } = buildSearchKeywords(rawText);
+  const jobs = await fetchJobsFromApi(searchKeywords, {
+    preferredLocation: DEFAULT_PREFERRED_LOCATION,
+  });
 
-  await fs.writeFile(resumeTextPath, rawText || "", "utf-8");
-
-  const keywordCommand = rawText.trim() ? ["keywords-text", resumeTextPath] : ["keywords", filePath];
-  const keywordPayload = await runPythonPipeline(keywordCommand);
-  if (keywordPayload?.error) {
-    await fs.rm(tempDir, { recursive: true, force: true });
-    return keywordPayload;
-  }
-
-  const searchKeywords = Array.isArray(keywordPayload?.search_keywords)
-    ? keywordPayload.search_keywords
-    : [];
-
-  const jobs = await fetchJobsForKeywords(searchKeywords);
   if (jobs.length === 0) {
     return {
       error: "No live jobs were returned for the generated keywords.",
       search_keywords: searchKeywords,
-      resume_skills: keywordPayload?.resume_skills || [],
+      resume_skills: resumeSkills,
     };
   }
 
-  try {
-    await fs.writeFile(jobsPath, JSON.stringify(jobs), "utf-8");
-    const analysisCommand = rawText.trim()
-      ? ["analyze-text", resumeTextPath, jobsPath]
-      : ["analyze", filePath, jobsPath];
-    const analysis = await runPythonPipeline(analysisCommand);
+  const analysis = await runPythonPipeline({
+    filePath,
+    rawText,
+    jobs,
+  });
 
-    return {
-      ...analysis,
-      search_keywords: analysis?.search_keywords || searchKeywords,
-      resume_skills: analysis?.resume_skills || keywordPayload?.resume_skills || [],
-      job_count: jobs.length,
-    };
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
+  return {
+    ...analysis,
+    search_keywords: searchKeywords,
+    resume_skills: resumeSkills,
+    job_count: jobs.length,
+  };
 };

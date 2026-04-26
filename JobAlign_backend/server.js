@@ -3,8 +3,13 @@ import mongoose from 'mongoose';
 import app from './app.js';
 import cron from "node-cron";
 import { fetchJobs } from "./services/jobService.js";
+import path from "path";
+import { fileURLToPath } from "url";
 
-dotenv.config({ path: './.env' });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, ".env") });
 const PORT = process.env.PORT || 3000;
 
 const DB = process.env.MONGO_DB_URL;
