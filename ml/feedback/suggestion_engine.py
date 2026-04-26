@@ -28,7 +28,7 @@ Return ONLY the improved sentence.
     
     try:
         response = client.models.generate_content(
-            model="gemini-3.0-flash",
+            model="gemini-2.5-flash",
             contents=prompt
         )
         return response.text.strip()

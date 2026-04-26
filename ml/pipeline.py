@@ -11,11 +11,11 @@ import json
 from typing import List, Dict, Any
 
 from ml.preprocessing.preprocess import clean_text, chunk_sentences, extract_text
-from ml.preprocessing.filter import filter_relevant_lines, is_useful_sentence
-from ml.extraction.skill_extractor import extract_skills
+from ml.preprocessing.filter import is_useful_sentence
+from ml.extraction.skill_extractor import extract_competencies
 from ml.matching.matcher import match_jobs
-from ml.scoring.scoring import compute_skill_gap, compute_resume_score
-from ml.embeddings.embeddings import embed_text
+from ml.scoring.scoring import compute_missing_competencies, compute_resume_score
+from ml.embeddings.embeddings import embed_text, cluster_sentences
 from ml.feedback.sentence_scoring import score_sentences
 from ml.feedback.highlight_engine import generate_highlights
 
@@ -32,8 +32,9 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
     # for s in sentences[:5]:
     #     print(s)
     
-    # 3. Extract Skills (Resume)
-    resume_skills = extract_skills(cleaned_resume)
+    # 3. Cluster and Extract Competencies (Resume)
+    resume_clusters = cluster_sentences(sentences)
+    resume_competencies = extract_competencies(resume_clusters)
     
     # 4. Match Jobs
     matched_jobs = match_jobs(cleaned_resume, jobs)
@@ -43,36 +44,26 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
         
     top_job = matched_jobs[0]
     
-    # Need to extract job skills (either provided or extracted from description)
-    if 'skills' in top_job and top_job['skills']:
-        job_skills = top_job['skills']
-    else:
-        top_job_desc_clean = clean_text(top_job.get('description', ''))
-        job_skills = extract_skills(top_job_desc_clean)
-        
-    # 5. Compute Skill Gap
-    missing_skills = compute_skill_gap(resume_skills, job_skills)
+    # 5. Compute Competency Gap
+    missing_competencies = compute_missing_competencies(resume_competencies)
     
     # 6. Score Resume
-    if not job_skills:
-        skill_match_frac = 1.0 # default if job has no specific skills
-    else:
-        # Use semantic gap result instead of exact intersection
-        matched_count = len(job_skills) - len(missing_skills)
-        skill_match_frac = max(0.0, matched_count / len(job_skills))
-        
-    resume_score = compute_resume_score(skill_match_frac, top_job.get('similarity_score', 0.0))
+    resume_score = compute_resume_score(resume_competencies, top_job.get('similarity_score', 0.0))
     
     # 7. Generate Highlights
     job_desc = top_job.get('description', '')
     job_emb = embed_text(clean_text(job_desc))
     sentence_scores = score_sentences(sentences, job_emb)
-    highlights = generate_highlights(sentences, sentence_scores, missing_skills[:3], job_desc)
+    
+    # Pass top relevant resume chunks for suggestion grounding
+    top_chunks = resume_clusters[:3] if resume_clusters else []
+    highlights = generate_highlights(sentences, sentence_scores, missing_competencies, job_desc, top_chunks)
     
     return {
         "resume_score": resume_score,
         "top_jobs": matched_jobs[:3],  # Return up to top 3 jobs matches
-        "skill_gap": missing_skills,
+        "competencies": resume_competencies,
+        "competency_gap": missing_competencies,
         "highlights": highlights
     }
 
