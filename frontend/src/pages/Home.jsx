@@ -30,14 +30,16 @@ const steps = [
   "Let Smart Align AI analyze your skills and experience.",
   "Review curated job opportunities and apply faster.",
 ];
+const STEPS_TEXT = [
+  "Parsing resume...",
+  "Matching skills...",
+  "Calculating score...",
+];
+
+const SCORE_TARGETS = [0, 42, 86];
+const STEP_DURATIONS = [2200, 2200, 3600];
 
 export default function Home({ isAuthenticated = false }) {
-  const stepsText = [
-    "Parsing resume...",
-    "Matching skills...",
-    "Calculating score...",
-  ];
-  const scoreTargets = [0, 42, 86];
   const scanSignals = [
     {
       label: "Document Parse",
@@ -94,24 +96,20 @@ export default function Home({ isAuthenticated = false }) {
   const [displayScore, setDisplayScore] = useState(0);
 
   useEffect(() => {
-    const durations = [2200, 2200, 3600];
     const timeout = setTimeout(() => {
-      setStepIndex((prev) => (prev + 1) % stepsText.length);
-    }, durations[stepIndex]);
+      setStepIndex((prev) => (prev + 1) % STEPS_TEXT.length);
+    }, STEP_DURATIONS[stepIndex]);
 
     return () => clearTimeout(timeout);
-  }, [stepIndex, stepsText.length]);
+  }, [stepIndex]);
 
   useEffect(() => {
-    const target = scoreTargets[stepIndex];
-    if (target < displayScore) {
-      setDisplayScore(target);
-      return undefined;
-    }
+    const target = SCORE_TARGETS[stepIndex];
 
     const interval = setInterval(() => {
       setDisplayScore((prev) => {
         if (prev === target) return prev;
+        if (prev > target) return target;
 
         const next = prev + Math.max(1, Math.ceil((target - prev) / 8));
         return Math.min(target, next);
@@ -119,7 +117,7 @@ export default function Home({ isAuthenticated = false }) {
     }, 70);
 
     return () => clearInterval(interval);
-  }, [displayScore, stepIndex]);
+  }, [stepIndex]);
 
   return (
     <main className="min-h-[calc(100vh-64px)] bg-slate-950 text-white">
@@ -186,7 +184,7 @@ export default function Home({ isAuthenticated = false }) {
               <div className="status-panel mt-6 rounded-2xl border border-teal-400/20 bg-teal-400/10 px-4 py-3">
                 <div className="flex items-center gap-3 text-sm font-medium text-teal-200">
                   <span className="status-dot h-2.5 w-2.5 rounded-full bg-teal-300" />
-                  <span>{stepsText[stepIndex]}</span>
+                  <span>{STEPS_TEXT[stepIndex]}</span>
                 </div>
               </div>
 

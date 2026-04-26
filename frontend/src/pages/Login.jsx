@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { login } from "../api/mockAuth";
+import { login } from "../api/auth";
 
 const benefits = [
   "Resume-driven job recommendations",
@@ -50,7 +50,10 @@ export default function Login({ setIsAuthenticated }) {
       const data = await login({ email, password });
 
       localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
+      localStorage.setItem(
+        "user",
+        JSON.stringify(data.user || { email })
+      );
 
       setIsAuthenticated(true);
       navigate("/jobs");
