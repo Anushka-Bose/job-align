@@ -8,6 +8,9 @@ const pdf = require("pdf-parse");
 
 export const uploadResume = async (req, res) => {
   try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Resume PDF is required" });
+    }
     const filePath = req.file.path;
 
     const dataBuffer = fs.readFileSync(filePath);
@@ -30,11 +33,29 @@ export const uploadResume = async (req, res) => {
     let pipelineError = null;
 
     try {
-      const jobsFromBody =
-        typeof req.body.jobs === "string" ? JSON.parse(req.body.jobs) : undefined;
-      pipelineResult = await runResumePipeline(filePath, jobsFromBody);
+      pipelineResult = await runResumePipeline(filePath, rawText);
+
+      if (pipelineResult?.error) {
+        pipelineError = pipelineResult.error;
+        pipelineResult = null;
+      } else if (Array.isArray(pipelineResult?.top_jobs)) {
+        pipelineResult.top_jobs = pipelineResult.top_jobs.map((job) => ({
+          ...job,
+          score:
+            typeof job.score === "number"
+              ? job.score
+              : (typeof job.similarity_score === "number" ? job.similarity_score : null)
+        }));
+      }
     } catch (err) {
       pipelineError = err.message;
+    }
+
+    if (pipelineResult) {
+      resume.score = pipelineResult.resume_score ?? null;
+      resume.skills = pipelineResult.resume_skills ?? [];
+      resume.pipelineResult = pipelineResult;
+      await resume.save();
     }
 
     res.status(201).json({
@@ -45,6 +66,6 @@ export const uploadResume = async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 };

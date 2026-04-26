@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { signup } from "../api/mockAuth";
+import { signup } from "../api/auth";
 
 const onboardingNotes = [
   "Build your candidate profile once and reuse it across applications.",
@@ -38,8 +38,8 @@ export default function Signup() {
   };*/}
   const handleSignup = async () => {
     try {
-      const res = await signup(form);
-      alert(res.message);
+      const res = await signup({ ...form, role: "candidate" });
+      alert(res.message || "Signup successful");
       navigate("/login");
     } catch (err) {
       alert(err.message);

@@ -1,7 +1,51 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { uploadResume } from "../api/resume";
 
 export default function ResumeUpload() {
+  const navigate = useNavigate();
   const [file, setFile] = useState(null);
+  const [status, setStatus] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!file) {
+      setStatus("Please select a PDF file before submitting.");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setStatus("Session expired. Please login again.");
+      return;
+    }
+
+    setIsUploading(true);
+    setStatus("Uploading resume...");
+
+    try {
+      const data = await uploadResume({
+        file,
+        token
+      });
+
+      if (data?.pipelineResult) {
+        localStorage.setItem("latestJobAnalysis", JSON.stringify(data.pipelineResult));
+      }
+
+      if (data?.pipelineError) {
+        setStatus(`Resume uploaded, but analysis failed: ${data.pipelineError}`);
+      } else {
+        setStatus("Resume uploaded and matched against live jobs.");
+      }
+
+      navigate("/jobs");
+    } catch (err) {
+      setStatus(err.message || "Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10 lg:py-14">
@@ -23,7 +67,7 @@ export default function ResumeUpload() {
               <p className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-400">
                 Step 1
               </p>
-              <p className="mt-3 text-slate-200">Upload your latest PDF or DOC resume.</p>
+              <p className="mt-3 text-slate-200">Upload your latest PDF resume.</p>
             </div>
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
               <p className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-400">
@@ -43,22 +87,33 @@ export default function ResumeUpload() {
         <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/80 p-6 shadow-xl shadow-black/30">
           <h2 className="text-2xl font-bold text-white">Upload Resume</h2>
           <p className="mt-3 text-sm leading-6 text-slate-400">
-            Choose your resume file to start generating profile insights.
+            Choose your resume PDF to start generating profile insights.
           </p>
 
           <label className="mt-8 flex cursor-pointer flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-white/15 bg-white/[0.03] px-6 py-10 text-center transition hover:border-teal-300/60 hover:bg-white/[0.05]">
             <span className="text-lg font-semibold text-slate-100">Drop a file here or browse</span>
-            <span className="mt-2 text-sm text-slate-400">PDF, DOC, DOCX up to 10MB</span>
+            <span className="mt-2 text-sm text-slate-400">PDF up to 10MB</span>
             <input
               type="file"
-              onChange={(e) => setFile(e.target.files[0])}
+              accept=".pdf"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="hidden"
             />
           </label>
 
-          <button className="mt-6 w-full rounded-full bg-teal-400 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-300">
-            Submit Resume
+          <button
+            onClick={handleSubmit}
+            disabled={isUploading}
+            className="mt-6 w-full rounded-full bg-teal-400 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {isUploading ? "Submitting..." : "Submit Resume"}
           </button>
+
+          {status && (
+            <p className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-sm text-slate-200">
+              {status}
+            </p>
+          )}
 
           {file && (
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-4">

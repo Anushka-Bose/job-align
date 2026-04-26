@@ -8,9 +8,19 @@ const resumeSchema = new mongoose.Schema({
   fileUrl: String,
   rawText: String,
 
+  score: Number,
   skills: [String],
   experience: [String],
   education: [String],
+  projects: [String],
+  experienceYears: {
+    type: Number,
+    default: 0
+  },
+  pipelineResult: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
 
   version: {
     type: Number,
