@@ -1,5 +1,6 @@
 import axios from "axios";
 import Job from "../models/jobModel.js";
+import { createNotificationsForNewJobs } from "./notificationService.js";
 
 const API_URL = "https://remotive.com/api/remote-jobs";
 const DEFAULT_SEARCH_TERMS = [
@@ -178,8 +179,18 @@ const fetchJobsFromApi = async (queries = [], options = {}) => {
 const fetchJobs = async () => {
   try {
     const jobs = await fetchJobsFromApi();
+    const newlyInsertedJobs = [];
 
     for (let job of jobs) {
+      const existingJob = await Job.findOne({
+        title: job.title,
+        company: job.company,
+      }).lean();
+
+      if (!existingJob) {
+        newlyInsertedJobs.push(job);
+      }
+
       await Job.findOneAndUpdate(
         {
           title: job.title,
@@ -201,7 +212,9 @@ const fetchJobs = async () => {
       );
     }
 
+    const notificationResult = await createNotificationsForNewJobs(newlyInsertedJobs);
     console.log("Jobs updated");
+    console.log(`Notifications created: ${notificationResult.created}`);
   } catch (err) {
     console.error(err.message);
   }

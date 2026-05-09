@@ -1,7 +1,9 @@
 import Resume from "../models/resumeModel.js";
+import User from "../models/userModel.js";
 import fs from "fs";
 import { createRequire } from "module";
 import { runResumePipeline } from "../services/pipelineService.js";
+import { sendTopJobMatchesEmail } from "../services/emailService.js";
 
 const require = createRequire(import.meta.url);
 const pdf = require("pdf-parse");
@@ -29,8 +31,11 @@ export const uploadResume = async (req, res) => {
       rawText,
       version: count + 1
     });
+    const candidate = await User.findById(req.user.id).select("name email").lean();
     let pipelineResult = null;
     let pipelineError = null;
+    let emailStatus = "not_attempted";
+    let emailResult = null;
 
     try {
       pipelineResult = await runResumePipeline(filePath, rawText);
@@ -56,12 +61,30 @@ export const uploadResume = async (req, res) => {
       resume.skills = pipelineResult.resume_skills ?? [];
       resume.pipelineResult = pipelineResult;
       await resume.save();
+
+      try {
+        emailResult = await sendTopJobMatchesEmail({
+          to: candidate?.email,
+          candidateName: candidate?.name,
+          jobs: pipelineResult.top_jobs || [],
+          resumeScore: pipelineResult.resume_score ?? null,
+        });
+        emailStatus = emailResult?.skipped ? "skipped" : "sent";
+      } catch (emailError) {
+        emailStatus = "failed";
+        emailResult = {
+          error: emailError.message,
+        };
+        console.error(`Top-match email failed for ${candidate?.email || "unknown user"}:`, emailError.message);
+      }
     }
 
     res.status(201).json({
       resume,
       pipelineResult,
-      pipelineError
+      pipelineError,
+      emailStatus,
+      emailResult
     });
 
   } catch (err) {

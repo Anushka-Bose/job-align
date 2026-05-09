@@ -97,6 +97,21 @@ const buildSearchKeywords = (rawText = "") => {
   };
 };
 
+const normalizePipelineJobs = (jobs = []) =>
+  (Array.isArray(jobs) ? jobs : []).map((job) => ({
+    id: job.id || job._id || `${job.company || "company"}-${job.title || "job"}`,
+    title: job.title || "Untitled role",
+    company: job.company || "Unknown company",
+    location: job.location || "Remote",
+    type: job.type || "Not specified",
+    description: job.description || "",
+    skills: Array.isArray(job.skills) ? job.skills : [],
+    skillsRequired: Array.isArray(job.skillsRequired) ? job.skillsRequired : [],
+    source: job.source || "internal",
+    search_query: job.searchQuery || job.search_query || job.company || "",
+    redirect_url: job.redirectUrl || job.redirect_url || null,
+  }));
+
 const runPythonCommand = (command, args) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -256,5 +271,34 @@ export const runResumePipeline = async (filePath, rawText = "") => {
     search_keywords: searchKeywords,
     resume_skills: resumeSkills,
     job_count: jobs.length,
+  };
+};
+
+export const analyzeResumeAgainstJobs = async ({ filePath = "", rawText = "", jobs = [] }) => {
+  const normalizedJobs = normalizePipelineJobs(jobs);
+
+  if (!normalizedJobs.length) {
+    return {
+      error: "No jobs were provided for analysis.",
+      search_keywords: [],
+      resume_skills: extractSkills(rawText),
+      job_count: 0,
+    };
+  }
+
+  const analysis = await runPythonPipeline({
+    filePath,
+    rawText,
+    jobs: normalizedJobs.map((job) => ({
+      ...job,
+      skills: job.skills.length ? job.skills : job.skillsRequired,
+    })),
+  });
+
+  return {
+    ...analysis,
+    search_keywords: uniqueValues(normalizedJobs.map((job) => job.search_query).filter(Boolean)),
+    resume_skills: extractSkills(rawText),
+    job_count: normalizedJobs.length,
   };
 };

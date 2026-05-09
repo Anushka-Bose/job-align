@@ -10,7 +10,13 @@ const onboardingNotes = [
 
 export default function Signup() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    role: "candidate",
+    company: "",
+  });
 
   {/*const handleSignup = async () => {
     try {
@@ -38,7 +44,11 @@ export default function Signup() {
   };*/}
   const handleSignup = async () => {
     try {
-      const res = await signup({ ...form, role: "candidate" });
+      const payload = {
+        ...form,
+        company: form.role === "recruiter" ? form.company : "",
+      };
+      const res = await signup(payload);
       alert(res.message || "Signup successful");
       navigate("/login");
     } catch (err) {
@@ -75,6 +85,29 @@ export default function Signup() {
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
           </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-slate-200">Account type</span>
+            <select
+              className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-teal-300 focus:bg-white/[0.08]"
+              value={form.role}
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+            >
+              <option value="candidate" className="bg-slate-950">Candidate</option>
+              <option value="recruiter" className="bg-slate-950">Recruiter</option>
+            </select>
+          </label>
+
+          {form.role === "recruiter" ? (
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-200">Company</span>
+              <input
+                placeholder="Your company name"
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-teal-300 focus:bg-white/[0.08]"
+                onChange={(e) => setForm({ ...form, company: e.target.value })}
+              />
+            </label>
+          ) : null}
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-200">Password</span>

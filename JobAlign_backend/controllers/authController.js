@@ -5,11 +5,24 @@ import jwt from "jsonwebtoken";
 // REGISTER
 export const register = async (req, res) => {
   try {
-    const { name, email, password, role = "candidate" } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role = "candidate",
+      company = ""
+    } = req.body;
 
     const exists = await User.findOne({ email });
     if (exists) {
       return res.status(400).json({ message: "User already exists" });
+    }
+
+    const normalizedRole = role === "recruiter" ? "recruiter" : "candidate";
+    const normalizedCompany = String(company || "").trim();
+
+    if (normalizedRole === "recruiter" && !normalizedCompany) {
+      return res.status(400).json({ message: "Recruiters must provide a company name" });
     }
 
     const hashed = await bcrypt.hash(password, 10);
@@ -18,7 +31,8 @@ export const register = async (req, res) => {
       name,
       email,
       password: hashed,
-      role
+      role: normalizedRole,
+      company: normalizedRole === "recruiter" ? normalizedCompany : ""
     });
 
     res.status(201).json({
@@ -27,7 +41,8 @@ export const register = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        company: user.company
       }
     });
 
@@ -63,7 +78,8 @@ export const login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        company: user.company
       }
     });
 

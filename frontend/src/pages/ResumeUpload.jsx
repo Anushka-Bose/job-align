@@ -7,6 +7,23 @@ export default function ResumeUpload() {
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const user = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  })();
+
+  if (user?.role === "recruiter") {
+    return (
+      <main className="mx-auto max-w-5xl px-6 py-10 lg:px-10 lg:py-14">
+        <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-8 text-slate-200">
+          Recruiters do not upload resumes here. Head to the jobs dashboard to review the candidate leaderboard for your company.
+        </section>
+      </main>
+    );
+  }
 
   const handleSubmit = async () => {
     if (!file) {
