@@ -7,7 +7,7 @@ from google import genai
 
 # ================= CONFIG =================
 client = None
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.1-flash-lite"
 BACKOFF_SECONDS = [5, 10, 20]
 BATCH_SIZE = 8
 _llm_quota_exhausted = False
