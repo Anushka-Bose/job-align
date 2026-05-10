@@ -9,6 +9,10 @@ const navItems = [
   { to: "/upload", label: "Upload" },
 ];
 
+const recruiterNavItems = [
+  { to: "/recruiter-dashboard", label: "Dashboard" },
+];
+
 export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
   const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -19,15 +23,12 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
       return null;
     }
   })();
-  const roleAwareItems = user?.role === "recruiter"
-    ? navItems
-    : [...navItems, { to: "/upload", label: "Upload" }];
+  const roleAwareItems = user?.role === "recruiter" ? recruiterNavItems : navItems;
   const token = localStorage.getItem("token");
   const canSeeNotifications = isAuthenticated && user?.role === "candidate";
 
   useEffect(() => {
     if (!canSeeNotifications || !token) {
-      setNotificationFeed({ unreadCount: 0, notifications: [] });
       return;
     }
 
