@@ -17,6 +17,12 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/feed", feedRoutes);
 app.use("/api/feed", feedRoutes);
 app.use("/api/recruiter", recruiterRoutes);
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "OK",
+    message: "JobAlign backend is live",
+  });
+});
 app.get("/", (req, res) => {
   res.send("API Running...");
 });
