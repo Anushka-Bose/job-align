@@ -154,7 +154,10 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
             "top_chunks": top_chunks
         })
     rewritten_sentences = generate_suggestions_batch(rewrite_entries, batch_size=8) if rewrite_entries else []
-    rewritten_map = {idx: rewritten_sentences[pos] for pos, idx in enumerate(weak_indices)}
+    rewritten_map = {
+        idx: rewritten_sentences[pos]
+        for pos, idx in enumerate(weak_indices[:len(rewritten_sentences)])
+    }
 
     # 11. Merge outputs
     highlights = generate_highlights(
