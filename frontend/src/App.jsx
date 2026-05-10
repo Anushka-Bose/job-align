@@ -9,6 +9,7 @@ import Jobs from "./pages/Jobs";
 import ResumeUpload from "./pages/ResumeUpload";
 import RecruiterDashboard from "./pages/RecruiterDashboard";
 import RecruiterJobs from "./pages/RecruiterJobs";
+import ResumeScore from "./pages/ResumeScore";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(localStorage.getItem("token")));
@@ -50,6 +51,14 @@ export default function App() {
             element={
               <ProtectedRoute isAuthenticated={isAuthenticated}>
                 <RecruiterJobs />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/resume-score"
+            element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <ResumeScore />
               </ProtectedRoute>
             }
           />

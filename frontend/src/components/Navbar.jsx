@@ -6,6 +6,7 @@ import { getNotifications, markNotificationRead } from "../api/notifications";
 const navItems = [
   { to: "/", label: "Home" },
   { to: "/jobs", label: "Jobs" },
+  { to: "/upload", label: "Upload" },
 ];
 
 export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
