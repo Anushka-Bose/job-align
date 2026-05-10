@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict, Any, Optional
 from ml.embeddings.embeddings import embed_text
+from ml.extraction.experience_extractor import extract_required_experience_years, experience_fit
 
 _job_embedding_cache: Dict[str, np.ndarray] = {}
 
@@ -16,7 +17,11 @@ def compute_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     sim = cosine_similarity(vec1, vec2)
     return float(sim[0][0])
 
-def match_jobs(resume_text: str, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def match_jobs(
+    resume_text: str,
+    jobs: List[Dict[str, Any]],
+    candidate_experience_years: Optional[float] = None
+) -> List[Dict[str, Any]]:
     """Embed resume and jobs, compute similarity, and return sorted jobs."""
     if not resume_text or not jobs:
         return []
@@ -32,13 +37,21 @@ def match_jobs(resume_text: str, jobs: List[Dict[str, Any]]) -> List[Dict[str, A
             job_emb = embed_text(job_desc)
             _job_embedding_cache[job_desc] = job_emb
         score = compute_similarity(resume_emb, job_emb)
+        required_years = extract_required_experience_years(job)
+        fit = experience_fit(candidate_experience_years or 0.0, required_years)
+        adjusted_score = score * fit["score_multiplier"]
         
         job_result = job.copy()
         job_result['similarity_score'] = score
+        job_result['adjusted_similarity_score'] = adjusted_score
+        job_result['required_experience_years'] = required_years
+        job_result['experience_fit'] = {
+            "status": fit["status"],
+            "gap_years": fit["gap_years"]
+        }
         scored_jobs.append(job_result)
         
-    # Sort descending by similarity score
-    scored_jobs.sort(key=lambda x: x['similarity_score'], reverse=True)
+    scored_jobs.sort(key=lambda x: x['adjusted_similarity_score'], reverse=True)
     return scored_jobs
 
 def get_top_chunks(

@@ -177,7 +177,7 @@ def analyze_resume_github_llm(file_path: str) -> Dict:
 # ----------------------------------------------
 #  Command-line test
 # ----------------------------------------------
-if _name_ == "_main_":
+if __name__ == "__main__":
     test_file = r"D:\job-align\ml\data\raw\ai_resume_test.pdf"
     result = analyze_resume_github_llm(test_file)
     print(json.dumps(result, indent=2, ensure_ascii=False))

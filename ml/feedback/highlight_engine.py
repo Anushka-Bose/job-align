@@ -1,3 +1,4 @@
+import re
 from typing import Dict, List, Optional
 
 RED_THRESHOLD = 0.28
@@ -7,6 +8,27 @@ LOW_VALUE_TERMS = (
     "recitation", "art competition", "school magazine",
     "nationality", "languages known", "interests"
 )
+
+TECH_TERMS = (
+    "python", "java", "sql", "machine learning", "deep learning", "nlp",
+    "scikit-learn", "gemini", "aws", "spring boot", "rest api", "apis",
+    "chatbot", "ai-powered", "leetcode", "codechef", "codeforces"
+)
+
+
+def _sentence_type(sentence: str) -> str:
+    lowered = sentence.lower()
+    if re.search(r"\b(bachelor|b\.?\s?tech|degree|computer science|ygpa|sgpa|gpa)\b", lowered):
+        return "education"
+    if lowered.startswith(("languages:", "frameworks", "tools:", "frameworks tools", "others:")):
+        return "skills"
+    if any(term in lowered for term in ("built", "developed", "integrated", "features include", "platform", "chatbot")):
+        return "project"
+    if any(term in lowered for term in ("leetcode", "codechef", "codeforces", "competitive programming")):
+        return "problem_solving"
+    if any(term in lowered for term in TECH_TERMS):
+        return "technical"
+    return "general"
 
 
 def _fallback_red_suggestion(sentence: str, missing_competencies: List[str]) -> str:
@@ -29,13 +51,6 @@ def _fallback_red_suggestion(sentence: str, missing_competencies: List[str]) -> 
     )
 
 
-def _yellow_suggestion() -> str:
-    return (
-        "This line is partly relevant. Make the contribution clearer by naming "
-        "the job-relevant skill and the result it produced."
-    )
-
-
 def generate_highlights(
     sentences: List[str],
     scores: List[float],
@@ -43,13 +58,13 @@ def generate_highlights(
     job_desc: str = "",
     top_chunks: Optional[List[str]] = None,
     suggestion_map: Optional[Dict[int, str]] = None,
-    rewritable_flags: Optional[List[bool]] = None
+    rewritable_flags: Optional[List[bool]] = None,
+    job_skills: Optional[List[str]] = None
 ) -> List[Dict[str, str]]:
     """Generate resume highlights with red entries carrying actionable suggestions."""
     top_chunks = top_chunks or []
     suggestion_map = suggestion_map or {}
     rewritable_flags = rewritable_flags or [True] * len(sentences)
-
     highlights = []
     red_suggestions_count = 0
     
@@ -57,26 +72,26 @@ def generate_highlights(
         if not rewritable_flags[idx]:
             continue
 
-        if score >= GREEN_THRESHOLD:
-            label = "GREEN"
-            suggestion = ""
-        elif score >= RED_THRESHOLD:
-            label = "YELLOW"
-            suggestion = _yellow_suggestion()
-        else:
-            label = "RED"
-            suggestion = suggestion_map.get(idx, "")
-            if not suggestion and red_suggestions_count < 3 and rewritable_flags[idx]:
-                from ml.feedback.suggestion_engine import generate_suggestion
-                suggestion = generate_suggestion(sentence, job_desc, missing_competencies, top_chunks)
-                red_suggestions_count += 1
-            if not suggestion or suggestion.strip().lower() == sentence.strip().lower():
-                suggestion = _fallback_red_suggestion(sentence, missing_competencies)
+        sentence_type = _sentence_type(sentence)
+
+        if score >= RED_THRESHOLD:
+            continue
+
+        label = "RED"
+        suggestion = suggestion_map.get(idx, "")
+        if not suggestion and red_suggestions_count < 3 and rewritable_flags[idx]:
+            from ml.feedback.suggestion_engine import generate_suggestion
+            suggestion = generate_suggestion(sentence, job_desc, missing_competencies, top_chunks)
+            red_suggestions_count += 1
+        if not suggestion or suggestion.strip().lower() == sentence.strip().lower():
+            suggestion = _fallback_red_suggestion(sentence, missing_competencies)
             
         highlights.append({
             "text": sentence,
             "label": label,
             "color": label.lower(),
+            "type": sentence_type,
+            "score": round(float(score), 3),
             "suggestion": suggestion
         })
         

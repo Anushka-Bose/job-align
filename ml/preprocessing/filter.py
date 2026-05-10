@@ -23,6 +23,10 @@ ACTION_TERMS = (
     "built", "developed", "integrated", "implemented", "deployed",
     "created", "designed", "led", "managed", "optimized", "trained"
 )
+SCHOOL_ONLY_RE = re.compile(r"\b(school|isc|icse|cbse|cisce)\b")
+DEGREE_OR_TECH_RE = re.compile(
+    r"\b(b\.?\s?tech|bachelor|masters?|m\.?\s?tech|degree|computer science|engineering|python|java|sql|machine learning|data)\b"
+)
 
 EMAIL_RE = re.compile(r"[\w.+-]+@?[\w-]+\.(?:com|edu|in|org|net)")
 PHONE_RE = re.compile(r"(?:\+?\d[\s-]?){8,}")
@@ -57,6 +61,9 @@ def is_useful_sentence(sentence: str) -> bool:
         return False
 
     if any(k in s for k in LOW_VALUE_PROFILE_KEYWORDS):
+        return False
+
+    if SCHOOL_ONLY_RE.search(s) and not DEGREE_OR_TECH_RE.search(s):
         return False
         
     # Removes short lines containing numbers (e.g., phone numbers, short addresses, dates)
