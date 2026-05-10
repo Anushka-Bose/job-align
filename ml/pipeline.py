@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,10 +19,39 @@ from ml.matching.matcher import match_jobs, get_top_chunks
 from ml.scoring.scoring import compute_missing_competencies, compute_resume_score
 from ml.embeddings.embeddings import embed_text, embed_sentences, cluster_sentences
 from ml.feedback.suggestion_engine import generate_suggestions_batch
+from ml.feedback.highlight_engine import RED_THRESHOLD, generate_highlights
+
+
+def _calibrate_sentence_scores(
+    sentences: List[str],
+    raw_scores: List[float],
+    job: Dict[str, Any]
+) -> List[float]:
+    """Boost scores when the sentence explicitly contains target job skills."""
+    skills = [str(skill).lower().strip() for skill in job.get("skills", []) if str(skill).strip()]
+    calibrated = []
+
+    for sentence, score in zip(sentences, raw_scores):
+        lowered = sentence.lower()
+        matched_skills = 0
+        for skill in skills:
+            pattern = r"(?<!\w)" + re.escape(skill) + r"(?!\w)"
+            if re.search(pattern, lowered):
+                matched_skills += 1
+
+        boost = min(0.18, matched_skills * 0.06)
+        if any(word in lowered for word in ("project", "built", "developed", "integrated", "implemented", "deployed")):
+            boost += 0.04
+        if any(word in lowered for word in ("ai-powered", "machine learning", "chatbot", "nlp")):
+            boost += 0.06
+
+        calibrated.append(min(1.0, float(score) + boost))
+
+    return calibrated
 
 def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Execute the full ML pipeline for resume intelligence."""
-    MAX_REWRITES = 3
+    MAX_LLM_SUGGESTIONS = 8
 
     # 1. Clean Text
     cleaned_resume = clean_text(resume_text)
@@ -61,15 +91,16 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
     # 9. Score sentences against top job
     job_desc = top_job.get('description', '')
     job_emb = embed_text(clean_text(job_desc))
-    sentence_scores = cosine_similarity(sentence_embeddings, job_emb.reshape(1, -1)).flatten().tolist()
+    raw_sentence_scores = cosine_similarity(sentence_embeddings, job_emb.reshape(1, -1)).flatten().tolist()
+    sentence_scores = _calibrate_sentence_scores(sentences, raw_sentence_scores, top_job)
 
     # 10. Identify weak + rewritable sentences and rewrite in batches with RAG context
     weak_candidates = [
         idx for idx, score in enumerate(sentence_scores)
-        if score < 0.4 and rewritable_flags[idx]
+        if score < RED_THRESHOLD and rewritable_flags[idx]
     ]
     weak_candidates.sort(key=lambda i: sentence_scores[i])
-    weak_indices = weak_candidates[:MAX_REWRITES]
+    weak_indices = weak_candidates[:MAX_LLM_SUGGESTIONS]
     sentence_to_sentence_sims = cosine_similarity(sentence_embeddings, sentence_embeddings)
 
     rewrite_entries = []
@@ -92,24 +123,14 @@ def run_pipeline(resume_text: str, jobs: List[Dict[str, Any]]) -> Dict[str, Any]
     rewritten_map = {idx: rewritten_sentences[pos] for pos, idx in enumerate(weak_indices)}
 
     # 11. Merge outputs
-    highlights = []
-    for idx, (sentence, score) in enumerate(zip(sentences, sentence_scores)):
-        if score >= 0.65:
-            label = "GREEN"
-            suggestion = ""
-        elif score >= 0.4:
-            label = "YELLOW"
-            suggestion = "This sentence is somewhat relevant but could be strengthened with clearer contribution and impact."
-        else:
-            label = "RED"
-            suggestion = rewritten_map.get(idx, "")
-            if suggestion.strip().lower() == sentence.strip().lower():
-                suggestion = ""
-        highlights.append({
-            "text": sentence,
-            "label": label,
-            "suggestion": suggestion
-        })
+    highlights = generate_highlights(
+        sentences=sentences,
+        scores=sentence_scores,
+        missing_competencies=missing_competencies,
+        job_desc=job_desc,
+        suggestion_map=rewritten_map,
+        rewritable_flags=rewritable_flags
+    )
     
     return {
         "resume_score": resume_score,
@@ -134,7 +155,7 @@ if __name__ == "__main__":
     # Test the pipeline end-to-end with the uploaded resume
     pdf_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-        "ml", "data", "raw", "Anushka's Resume1.pdf"
+        "ml", "data", "raw", "Anushka_Bose_Resume (1).pdf"
     )
     
     dummy_jobs = [

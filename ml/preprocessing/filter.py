@@ -1,27 +1,66 @@
 import re
 
 PERSONAL_INFO_KEYWORDS = (
-    "name", "dob", "date of birth", "address", "permanent address",
-    "phone", "mobile", "email", "nationality", "gender",
+    "resume name", "contact no", "contact number", "dob", "date of birth",
+    "address", "address for correspondence", "permanent address",
+    "phone", "mobile", "email", "e-mail", "mail id", "nationality", "gender",
     "marital status", "father", "mother", "passport", "aadhaar",
-    "declaration", "signature"
+    "declaration", "signature", "languages known"
 )
+
+LOW_VALUE_PROFILE_KEYWORDS = (
+    "interests:", "hobbies:", "languages known", "nationality:",
+    "fluent in", "conversant in", "recitation competition",
+    "art competition", "school magazine", "illustration lead"
+)
+
+RESUME_SECTION_HEADERS = (
+    "academic background", "skills", "domain skill", "soft skill",
+    "projects", "seminars", "co-curricular activities",
+    "extra-curricular activities", "achievements"
+)
+ACTION_TERMS = (
+    "built", "developed", "integrated", "implemented", "deployed",
+    "created", "designed", "led", "managed", "optimized", "trained"
+)
+
+EMAIL_RE = re.compile(r"[\w.+-]+@?[\w-]+\.(?:com|edu|in|org|net)")
+PHONE_RE = re.compile(r"(?:\+?\d[\s-]?){8,}")
+ADDRESS_RE = re.compile(r"\b(?:kolkata|delhi|mumbai|bangalore|bengaluru|pune|chennai|hyderabad|pin|pincode)\b")
+
+def _personal_info_score(text: str) -> int:
+    lowered = text.lower()
+    score = 0
+    score += sum(1 for keyword in PERSONAL_INFO_KEYWORDS if keyword in lowered)
+    score += 1 if EMAIL_RE.search(lowered) else 0
+    score += 1 if PHONE_RE.search(lowered) else 0
+    score += 1 if ADDRESS_RE.search(lowered) else 0
+    return score
+
+def _strip_section_prefix(sentence: str) -> str:
+    text = sentence.strip()
+    lowered = text.lower()
+    for header in RESUME_SECTION_HEADERS:
+        if lowered.startswith(header):
+            return text[len(header):].strip(" :-")
+    return text
+
 def is_useful_sentence(sentence: str) -> bool:
     """Lightweight heuristic filtering."""
-    if len(sentence.split()) < 5:
+    sentence = _strip_section_prefix(sentence)
+    if len(sentence.split()) < 4:
         return False
         
     s = sentence.lower().strip()
-    
-    ignore_keywords = [
-        "father", "mother", "dob", "date of birth",
-        "declaration", "signature", "permanent address"
-    ]
-    if any(k in s for k in ignore_keywords):
+
+    if _personal_info_score(s) >= 1:
+        return False
+
+    if any(k in s for k in LOW_VALUE_PROFILE_KEYWORDS):
         return False
         
     # Removes short lines containing numbers (e.g., phone numbers, short addresses, dates)
-    if any(char.isdigit() for char in s) and len(s) < 30:
+    if any(char.isdigit() for char in s) and len(s) < 35:
         return False
         
     return True
@@ -30,11 +69,19 @@ def is_rewritable(sentence: str) -> bool:
     """Return True only for sentences safe and meaningful to rewrite."""
     if not sentence:
         return False
-    text = sentence.strip()
+    original_lowered = sentence.strip().lower()
+    text = _strip_section_prefix(sentence)
     if len(text.split()) < 5:
         return False
     lowered = text.lower()
-    if any(keyword in lowered for keyword in PERSONAL_INFO_KEYWORDS):
+    if _personal_info_score(lowered) >= 1:
+        return False
+    if any(keyword in lowered for keyword in LOW_VALUE_PROFILE_KEYWORDS):
+        return False
+    if (
+        original_lowered.startswith(("projects", "projects seminars")) and
+        not any(term in lowered for term in ACTION_TERMS)
+    ):
         return False
     core_chars = re.sub(r"\s+", "", text)
     if not core_chars:
