@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import JobCard from "../components/JobCard";
 import { getCandidateJobFeed } from "../api/feed";
 import { getRecruiterLeaderboard, runRecruiterScamCheck } from "../api/recruiter";
@@ -44,7 +45,16 @@ const parseStoredUser = () => {
   }
 };
 
+const readLatestAnalysis = () => {
+  try {
+    return JSON.parse(localStorage.getItem("latestJobAnalysis") || "null");
+  } catch {
+    return null;
+  }
+};
+
 export default function Jobs() {
+  const locationState = useLocation();
   const [candidateFeed, setCandidateFeed] = useState(null);
   const [recruiterFeed, setRecruiterFeed] = useState(null);
   const [scamChecks, setScamChecks] = useState({});
@@ -56,6 +66,13 @@ export default function Jobs() {
   const user = useMemo(parseStoredUser, []);
   const token = localStorage.getItem("token");
   const isRecruiter = user?.role === "recruiter";
+  const latestAnalysis = useMemo(readLatestAnalysis, []);
+  const uploadedAnalysis = locationState.state?.uploadedAnalysis || null;
+  const candidateAnalysis = uploadedAnalysis || latestAnalysis || null;
+  const needsResumeUpload = !isRecruiter && Boolean(candidateFeed?.needsResumeUpload);
+  const emptyStateTitle = candidateFeed?.emptyState?.title || "Upload your resume to see jobs";
+  const emptyStateMessage = candidateFeed?.emptyState?.message
+    || "Add your latest resume to unlock personalized job matches.";
 
   useEffect(() => {
     let ignore = false;
@@ -114,21 +131,43 @@ export default function Jobs() {
   }, [isRecruiter, token, user?.id]);
 
   const candidateJobs = useMemo(() => {
-    const jobs = candidateFeed?.jobs;
-    if (!Array.isArray(jobs) || !jobs.length) {
-      return fallbackJobs;
+    if (needsResumeUpload) {
+      return [];
     }
 
-    return jobs.map((job) => ({
+    const jobs = Array.isArray(candidateFeed?.jobs) && candidateFeed.jobs.length
+      ? candidateFeed.jobs
+      : (
+        Array.isArray(uploadedAnalysis?.top_jobs) && uploadedAnalysis.top_jobs.length
+          ? uploadedAnalysis.top_jobs
+          : (Array.isArray(latestAnalysis?.top_jobs) ? latestAnalysis.top_jobs : [])
+      );
+
+    if (!jobs.length) {
+      return fallbackJobs.map((job) => ({
+        ...job,
+        isFallback: true,
+      }));
+    }
+
+    return jobs.map((job, index) => ({
+      jobId: job.jobId || job.id || job._id || `${job.company || "company"}-${job.title || "job"}-${job.searchQuery || job.search_query || "query"}-${index}`,
       title: job.title || "Matched Role",
       company: job.company || "Recommended Company",
       location: job.location || "Remote",
       type: job.type || "Recommended",
-      match: formatPercentage(job.matchScore),
+      match: formatPercentage(
+        job.matchScore
+        ?? job.score
+        ?? job.adjusted_similarity_score
+        ?? job.similarity_score
+      ),
       description: job.description || "Matched from your uploaded resume and skill profile.",
-      redirectUrl: job.redirectUrl,
+      redirectUrl: job.redirectUrl || job.redirect_url,
+      searchQuery: job.searchQuery || job.search_query,
+      isFallback: false,
     }));
-  }, [candidateFeed]);
+  }, [candidateFeed, latestAnalysis, needsResumeUpload, uploadedAnalysis]);
 
   const averageMatch = useMemo(() => {
     const source = isRecruiter ? recruiterFeed?.candidates || [] : candidateJobs;
@@ -164,8 +203,21 @@ export default function Jobs() {
     }
   };
 
-  const candidateKeywords = candidateFeed?.searchQueries || [];
-  const resumeSkills = candidateFeed?.resumeSkills || [];
+  const candidateKeywords =
+    candidateFeed?.searchQueries
+    || uploadedAnalysis?.search_keywords
+    || latestAnalysis?.search_keywords
+    || [];
+  const resumeSkills =
+    candidateFeed?.resumeSkills
+    || uploadedAnalysis?.resume_skills
+    || latestAnalysis?.resume_skills
+    || [];
+  const overallResumeScore = Number(candidateAnalysis?.resume_score);
+  const topMatchedJob = candidateAnalysis?.match_summary?.best_job_title
+    || candidateAnalysis?.top_jobs?.[0]?.title
+    || "Not available";
+  const experienceSummary = candidateAnalysis?.match_summary?.message || "Resume analysis is available.";
   const leaderboard = recruiterFeed?.candidates || [];
 
   const handleNotificationOpen = async (notification) => {
@@ -224,7 +276,7 @@ export default function Jobs() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
               <p className="text-3xl font-black text-teal-300">
-                {isRecruiter ? recruiterFeed?.totalJobs || 0 : candidateFeed?.totalActiveJobs || candidateJobs.length}
+                {isRecruiter ? recruiterFeed?.totalJobs || 0 : candidateFeed?.totalActiveJobs || 0}
               </p>
               <p className="mt-2 text-sm text-slate-400">
                 {isRecruiter ? "jobs owned by your company" : "jobs considered for your feed"}
@@ -238,7 +290,7 @@ export default function Jobs() {
             </div>
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
               <p className="text-3xl font-black text-cyan-300">
-                {isRecruiter ? leaderboard.length : candidateFeed?.filteredJobs ?? candidateJobs.length}
+                {isRecruiter ? leaderboard.length : candidateFeed?.filteredJobs ?? 0}
               </p>
               <p className="mt-2 text-sm text-slate-400">
                 {isRecruiter ? "eligible candidates on the board" : "ranked roles returned"}
@@ -463,7 +515,70 @@ export default function Jobs() {
         </section>
       ) : (
         <>
-          <section className="mt-8 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
+          {needsResumeUpload ? (
+            <section className="mt-8 rounded-[1.75rem] border border-dashed border-teal-300/30 bg-teal-400/10 p-8">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-teal-100/80">
+                Resume Needed
+              </p>
+              <h2 className="mt-3 text-3xl font-black text-white">{emptyStateTitle}</h2>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-200">
+                {emptyStateMessage}
+              </p>
+              <Link
+                to="/upload"
+                className="mt-6 inline-flex items-center justify-center rounded-full bg-teal-300 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-200"
+              >
+                Upload Resume
+              </Link>
+            </section>
+          ) : null}
+
+          {!needsResumeUpload && candidateAnalysis ? (
+            <section className="mt-8 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                    Resume Analysis Snapshot
+                  </p>
+                  <p className="mt-2 text-sm text-slate-300">
+                    Your latest uploaded resume already has backend analysis available.
+                  </p>
+                </div>
+                <Link
+                  to="/resume-score"
+                  className="inline-flex items-center justify-center rounded-full bg-teal-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
+                >
+                  View Resume Analysis
+                </Link>
+                <Link
+                  to="/resume-highlights"
+                  className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-5 py-3 font-semibold text-white transition hover:border-teal-300/40 hover:bg-white/[0.08]"
+                >
+                  View Highlights
+                </Link>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Resume score</p>
+                  <p className="mt-2 text-3xl font-black text-teal-300">
+                    {Number.isFinite(overallResumeScore) ? overallResumeScore : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Top match</p>
+                  <p className="mt-2 text-lg font-semibold text-white">{topMatchedJob}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Experience fit</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{experienceSummary}</p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {!needsResumeUpload ? (
+            <section className="mt-8 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
@@ -507,9 +622,11 @@ export default function Jobs() {
                 <p className="text-slate-400">No job notifications yet for your uploaded resume.</p>
               )}
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+          {!needsResumeUpload ? (
+            <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
                 Search Keywords
@@ -549,13 +666,24 @@ export default function Jobs() {
                 )}
               </div>
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+          {!needsResumeUpload ? (
+            <section className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+            {!candidateFeed?.jobs?.length && (
+              (Array.isArray(uploadedAnalysis?.top_jobs) && uploadedAnalysis.top_jobs.length)
+              || (Array.isArray(latestAnalysis?.top_jobs) && latestAnalysis.top_jobs.length)
+            ) ? (
+              <div className="md:col-span-2 rounded-[1.5rem] border border-teal-300/20 bg-teal-400/10 p-4 text-sm text-teal-100">
+                Showing jobs from your latest uploaded resume analysis.
+              </div>
+            ) : null}
             {candidateJobs.map((job) => (
-              <JobCard key={`${job.company}-${job.title}`} {...job} />
+              <JobCard key={job.jobId} {...job} />
             ))}
-          </section>
+            </section>
+          ) : null}
         </>
       )}
     </main>

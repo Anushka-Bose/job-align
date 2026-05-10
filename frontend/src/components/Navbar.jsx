@@ -25,7 +25,7 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
         { to: "/recruiter-jobs", label: "Jobs" },
         { to: "/recruiter-dashboard", label: "Leaderboard" },
       ]
-    : [...navItems, { to: "/upload", label: "Upload" }];
+    : navItems;
   const token = localStorage.getItem("token");
   const canSeeNotifications = isAuthenticated && user?.role === "candidate";
 

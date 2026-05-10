@@ -1,12 +1,12 @@
 import { Link } from "react-router-dom";
 
 const scoreCategories = [
-  { key: "impact", label: "Impact", fallback: 82, color: "accent-teal-300" },
-  { key: "problemSolving", label: "Problem solving", fallback: 76, color: "accent-cyan-300" },
-  { key: "techDomain", label: "Tech/domain", fallback: 88, color: "accent-orange-300" },
-  { key: "communication", label: "Communication", fallback: 72, color: "accent-sky-300" },
-  { key: "leadershipOwnership", label: "Leadership + ownership", fallback: 79, color: "accent-amber-300" },
-  { key: "analyticalThinking", label: "Analytical thinking", fallback: 84, color: "accent-emerald-300" },
+  { key: "Impact", label: "Impact", color: "accent-teal-300" },
+  { key: "Problem Solving", label: "Problem solving", color: "accent-cyan-300" },
+  { key: "Technical/Domain Depth", label: "Tech/domain", color: "accent-orange-300" },
+  { key: "Communication", label: "Communication", color: "accent-sky-300" },
+  { key: "Leadership/Ownership", label: "Leadership + ownership", color: "accent-amber-300" },
+  { key: "Analytical Thinking", label: "Analytical thinking", color: "accent-emerald-300" },
 ];
 
 const readLatestAnalysis = () => {
@@ -24,39 +24,50 @@ const clampScore = (value, fallback = 0) => {
   return Math.max(0, Math.min(100, Math.round(normalized)));
 };
 
-const pickScore = (analysis, keys, fallback) => {
-  for (const key of keys) {
-    const value = key.split(".").reduce((current, part) => current?.[part], analysis);
-    if (value !== undefined && value !== null) {
-      return clampScore(value, fallback);
-    }
-  }
-
-  return fallback;
-};
-
 export default function ResumeScore() {
   const analysis = readLatestAnalysis();
-  const scores = analysis?.scores || analysis?.categoryScores || analysis?.dimensions || {};
-  const overallScore = pickScore(
-    analysis,
-    ["overallScore", "score", "pipelineScore", "matchScore", "eligibilityScore"],
-    81
-  );
+  const scores = analysis?.competencies || {};
+  const overallScore = clampScore(analysis?.resume_score, 0);
+  const matchSummary = analysis?.match_summary || null;
+  const topJob = Array.isArray(analysis?.top_jobs) ? analysis.top_jobs[0] : null;
+  const competencyGap = Array.isArray(analysis?.competency_gap) ? analysis.competency_gap : [];
 
   const categoryScores = scoreCategories.map((category) => ({
     ...category,
-    value: pickScore(
-      scores,
-      [
-        category.key,
-        category.label,
-        category.label.toLowerCase(),
-        category.label.toLowerCase().replaceAll(" ", "_").replace("+", "plus"),
-      ],
-      category.fallback
-    ),
+    value: clampScore(scores?.[category.key], 0),
   }));
+
+  if (!analysis) {
+    return (
+      <main className="mx-auto max-w-6xl px-6 py-10 text-white lg:px-10 lg:py-14">
+        <section className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-8 shadow-2xl shadow-teal-500/10 backdrop-blur">
+          <p className="text-sm font-semibold uppercase tracking-[0.35em] text-teal-200">
+            Resume Analysis
+          </p>
+          <h1 className="mt-4 text-4xl font-black leading-tight text-white md:text-5xl">
+            No resume analysis is available yet.
+          </h1>
+          <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-300">
+            Upload your resume first to fetch the backend analysis and see your score breakdown.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-4">
+            <Link
+              to="/upload"
+              className="inline-flex items-center justify-center rounded-full bg-teal-400 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
+            >
+              Upload resume
+            </Link>
+            <Link
+              to="/jobs"
+              className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 font-semibold text-white transition hover:border-teal-300/40 hover:bg-white/[0.08]"
+            >
+              View jobs
+            </Link>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 text-white lg:px-10 lg:py-14">
@@ -70,7 +81,7 @@ export default function ResumeScore() {
               Your resume score is ready.
             </h1>
             <p className="mt-5 text-lg leading-8 text-slate-300">
-              Review your overall profile strength and the signals hiring teams usually scan first.
+              Review the exact backend analysis for your uploaded resume and the signals hiring teams usually scan first.
             </p>
           </div>
 
@@ -79,6 +90,12 @@ export default function ResumeScore() {
             className="inline-flex items-center justify-center rounded-full bg-teal-400 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
           >
             View matched jobs
+          </Link>
+          <Link
+            to="/resume-highlights"
+            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 font-semibold text-white transition hover:border-teal-300/40 hover:bg-white/[0.08]"
+          >
+            View highlights
           </Link>
         </div>
       </section>
@@ -101,6 +118,12 @@ export default function ResumeScore() {
           <p className="mt-5 text-sm leading-6 text-slate-400">
             This score summarizes how strongly your resume presents role fit, depth, and evidence of execution.
           </p>
+          {matchSummary ? (
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-300">
+              <p className="font-semibold text-white">{matchSummary.best_job_title || "Top matched job"}</p>
+              <p className="mt-2">{matchSummary.message}</p>
+            </div>
+          ) : null}
         </article>
 
         <article className="rounded-[1.75rem] border border-white/10 bg-slate-950/75 p-7 shadow-xl shadow-black/30">
@@ -137,6 +160,48 @@ export default function ResumeScore() {
                 />
               </div>
             ))}
+          </div>
+        </article>
+      </section>
+
+      <section className="mt-8 grid gap-6 lg:grid-cols-2">
+        <article className="rounded-[1.75rem] border border-white/10 bg-slate-950/75 p-7 shadow-xl shadow-black/30">
+          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-400">
+            Match Summary
+          </p>
+          <div className="mt-5 grid gap-3 text-sm text-slate-300">
+            <p>
+              Best job: <span className="font-semibold text-white">{matchSummary?.best_job_title || topJob?.title || "Not available"}</span>
+            </p>
+            <p>
+              Experience level: <span className="font-semibold text-white">{matchSummary?.candidate_experience_level || "Not available"}</span>
+            </p>
+            <p>
+              Candidate experience: <span className="font-semibold text-white">{matchSummary?.candidate_experience_years ?? "N/A"}</span>
+            </p>
+            <p>
+              Required experience: <span className="font-semibold text-white">{matchSummary?.required_experience_years ?? "Not specified"}</span>
+            </p>
+          </div>
+        </article>
+
+        <article className="rounded-[1.75rem] border border-white/10 bg-slate-950/75 p-7 shadow-xl shadow-black/30">
+          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-400">
+            Competency Gap
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            {competencyGap.length ? (
+              competencyGap.map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-orange-300/20 bg-orange-400/10 px-4 py-2 text-sm text-orange-100"
+                >
+                  {item}
+                </span>
+              ))
+            ) : (
+              <p className="text-sm text-slate-400">No competency gaps were returned by the backend analysis.</p>
+            )}
           </div>
         </article>
       </section>

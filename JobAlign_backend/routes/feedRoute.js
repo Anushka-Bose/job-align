@@ -42,6 +42,45 @@ const hasPipelineData = (resume) => {
   return resumeSkills.length > 0 || pipelineKeywords.length > 0;
 };
 
+const getStoredPipelineJobs = (resume, resumeSkills) => {
+  const jobs = Array.isArray(resume?.pipelineResult?.top_jobs)
+    ? resume.pipelineResult.top_jobs
+    : [];
+
+  return jobs.map((job, index) => {
+    const jobSkills = Array.isArray(job.skillsRequired)
+      ? job.skillsRequired
+      : (Array.isArray(job.skills) ? job.skills : []);
+    const matchScore = typeof job.score === "number"
+      ? job.score
+      : (
+        typeof job.adjusted_similarity_score === "number"
+          ? job.adjusted_similarity_score
+          : (
+            typeof job.similarity_score === "number"
+              ? job.similarity_score
+              : calculateSmartMatchScore(resumeSkills, jobSkills)
+          )
+      );
+    const explanation = getSmartExplanation(resumeSkills, jobSkills);
+
+    return {
+      jobId: job.id || `${resume._id}-${index}`,
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      type: job.type,
+      description: job.description,
+      redirectUrl: job.redirectUrl || job.redirect_url,
+      source: job.source,
+      searchQuery: job.searchQuery || job.search_query,
+      skillsRequired: jobSkills,
+      matchScore,
+      explanation,
+    };
+  });
+};
+
 // GET personalized jobs for a candidate based on the latest uploaded resume
 router.get("/:userId", protect, async (req, res) => {
   try {
@@ -53,7 +92,19 @@ router.get("/:userId", protect, async (req, res) => {
 
     const latestResume = await Resume.findOne({ userId }).sort({ createdAt: -1 });
     if (!latestResume) {
-      return res.status(404).json({ message: "Resume not found" });
+      return res.status(200).json({
+        userId,
+        needsResumeUpload: true,
+        emptyState: {
+          title: "Upload your resume to see jobs",
+          message: "Add your latest resume and JobAlign will build your personalized job feed."
+        },
+        searchQueries: [],
+        resumeSkills: [],
+        totalActiveJobs: 0,
+        filteredJobs: 0,
+        jobs: [],
+      });
     }
 
     const resume = hasPipelineData(latestResume)
@@ -68,8 +119,19 @@ router.get("/:userId", protect, async (req, res) => {
       }).sort({ createdAt: -1 });
 
     if (!resume) {
-      return res.status(400).json({
-        message: "Resume upload exists, but no analyzed resume data is available yet."
+      return res.status(200).json({
+        userId,
+        resumeId: latestResume._id,
+        needsResumeUpload: true,
+        emptyState: {
+          title: "Upload your resume to refresh job matches",
+          message: "We could not read enough skill data from the current resume yet. Upload it again to generate your job feed."
+        },
+        searchQueries: [],
+        resumeSkills: [],
+        totalActiveJobs: 0,
+        filteredJobs: 0,
+        jobs: [],
       });
     }
 
@@ -77,8 +139,38 @@ router.get("/:userId", protect, async (req, res) => {
     const searchQueries = buildSearchQueries(resumeSkills, resume);
 
     if (!resumeSkills.length && !searchQueries.length) {
-      return res.status(400).json({
-        message: "Resume is missing pipeline skills, upload the resume again to refresh analysis"
+      return res.status(200).json({
+        userId,
+        resumeId: resume._id,
+        needsResumeUpload: true,
+        emptyState: {
+          title: "Upload your resume to see jobs",
+          message: "Your current resume does not have enough extracted skills yet. Upload it again to refresh analysis."
+        },
+        searchQueries: [],
+        resumeSkills: [],
+        totalActiveJobs: 0,
+        filteredJobs: 0,
+        jobs: [],
+      });
+    }
+
+    const storedPipelineJobs = getStoredPipelineJobs(resume, resumeSkills);
+    if (storedPipelineJobs.length) {
+      const jobsToReturn = [...storedPipelineJobs].sort((left, right) => {
+        const leftScore = typeof left.matchScore === "number" ? left.matchScore : 0;
+        const rightScore = typeof right.matchScore === "number" ? right.matchScore : 0;
+        return rightScore - leftScore;
+      });
+
+      return res.status(200).json({
+        userId,
+        resumeId: resume._id,
+        searchQueries,
+        resumeSkills,
+        totalActiveJobs: storedPipelineJobs.length,
+        filteredJobs: storedPipelineJobs.length,
+        jobs: jobsToReturn,
       });
     }
 

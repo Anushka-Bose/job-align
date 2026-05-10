@@ -56,7 +56,11 @@ export default function ResumeUpload() {
         setStatus("Resume uploaded and matched against live jobs.");
       }
 
-      navigate("/resume-score");
+      navigate("/jobs", {
+        state: {
+          uploadedAnalysis: data?.pipelineResult || null,
+        },
+      });
     } catch (err) {
       setStatus(err.message || "Upload failed");
     } finally {
@@ -119,6 +123,7 @@ export default function ResumeUpload() {
           </label>
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={isUploading}
             className="mt-6 w-full rounded-full bg-teal-400 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-70"

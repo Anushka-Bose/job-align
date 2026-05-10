@@ -15,6 +15,7 @@ app.use("/api/resume", resumeRoutes);
 app.use("/api/notifications", notificationRoutes);
 
 app.use("/feed", feedRoutes);
+app.use("/api/feed", feedRoutes);
 app.use("/api/recruiter", recruiterRoutes);
 app.get("/", (req, res) => {
   res.send("API Running...");

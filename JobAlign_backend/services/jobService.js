@@ -1,5 +1,6 @@
 import axios from "axios";
 import Job from "../models/jobModel.js";
+import Resume from "../models/resumeModel.js";
 import { createNotificationsForNewJobs } from "./notificationService.js";
 
 const API_URL = "https://remotive.com/api/remote-jobs";
@@ -86,6 +87,50 @@ const stripHtml = (value = "") =>
     .trim();
 
 const uniqueValues = (values = []) => [...new Set(values.filter(Boolean))];
+
+const getCandidateSearchQueries = async () => {
+  const resumes = await Resume.find({
+    $or: [
+      { skills: { $exists: true, $ne: [] } },
+      { "pipelineResult.resume_skills.0": { $exists: true } },
+      { "pipelineResult.search_keywords.0": { $exists: true } },
+    ],
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const latestByUser = new Map();
+  for (const resume of resumes) {
+    const userId = String(resume.userId);
+    if (!latestByUser.has(userId)) {
+      latestByUser.set(userId, resume);
+    }
+  }
+
+  const searchQueries = [];
+
+  for (const resume of latestByUser.values()) {
+    const pipelineKeywords = Array.isArray(resume?.pipelineResult?.search_keywords)
+      ? resume.pipelineResult.search_keywords
+      : [];
+    const resumeSkills = uniqueValues([
+      ...(Array.isArray(resume?.skills) ? resume.skills : []),
+      ...(Array.isArray(resume?.pipelineResult?.resume_skills) ? resume.pipelineResult.resume_skills : []),
+    ]);
+
+    if (pipelineKeywords.length) {
+      searchQueries.push(...pipelineKeywords);
+    } else if (resumeSkills.length) {
+      searchQueries.push(
+        resumeSkills.slice(0, 3).join(" "),
+        ...resumeSkills.slice(0, 5).map((skill) => `${skill} developer`),
+        ...resumeSkills.slice(0, 2).map((skill) => `${skill} engineer`),
+      );
+    }
+  }
+
+  return normalizeQueries([...DEFAULT_SEARCH_TERMS, ...searchQueries]);
+};
 
 const normalizeJob = (job, searchQuery = "") => {
   const description = stripHtml(job.description);
@@ -180,7 +225,8 @@ const fetchJobsFromApi = async (queries = [], options = {}) => {
 
 const fetchJobs = async () => {
   try {
-    const jobs = await fetchJobsFromApi();
+    const queries = await getCandidateSearchQueries();
+    const jobs = await fetchJobsFromApi(queries);
     const newlyInsertedJobs = [];
 
     for (let job of jobs) {
@@ -202,9 +248,11 @@ const fetchJobs = async () => {
           title: job.title,
           company: job.company,
           location: job.location,
+          type: job.type,
           description: job.description,
           skillsRequired: job.skillsRequired,
           source: job.source,
+          redirectUrl: job.redirectUrl,
         },
         {
           upsert: true,

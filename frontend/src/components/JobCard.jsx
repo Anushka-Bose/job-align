@@ -54,7 +54,7 @@ export default function JobCard({
       ) : null}
 
       {showActions ? (
-        <div className="mt-6 flex gap-3">
+        <div className="mt-6 flex">
           <a
             href={redirectUrl || "#"}
             target="_blank"
@@ -63,9 +63,6 @@ export default function JobCard({
           >
             Apply Now
           </a>
-          <button className="rounded-full border border-white/15 px-5 py-3 font-semibold text-slate-200 transition hover:border-white/30 hover:bg-white/10 hover:text-white">
-            Save Role
-          </button>
         </div>
       ) : null}
     </article>
