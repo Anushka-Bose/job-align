@@ -40,6 +40,14 @@ const SCORE_TARGETS = [0, 42, 86];
 const STEP_DURATIONS = [2200, 2200, 3600];
 
 export default function Home({ isAuthenticated = false }) {
+  const currentUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  })();
+  const exploreJobsPath = currentUser?.role === "recruiter" ? "/recruiter-jobs" : "/jobs";
   const scanSignals = [
     {
       label: "Document Parse",
@@ -149,7 +157,7 @@ export default function Home({ isAuthenticated = false }) {
                 </Link>
               ) : null}
               <Link
-                to="/jobs"
+                to={exploreJobsPath}
                 className="rounded-full border border-white/20 px-6 py-3 text-center font-semibold text-white transition hover:border-white/40 hover:bg-white/5"
               >
                 Explore Jobs

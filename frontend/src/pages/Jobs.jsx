@@ -30,6 +30,12 @@ const formatPercentage = (score) => {
   return `${Math.max(0, Math.min(100, Math.round(normalized)))}%`;
 };
 
+const formatFlag = (value) => (value ? "Available" : "Missing");
+const hasScamSignals = (analysis) =>
+  Number(analysis?.scam_percentage ?? 0) > 25 || (analysis?.scam_indicators || []).length > 0;
+const getScamHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Explanation" : "No Scam Signal Detected");
+const getRiskHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Risk" : "Fraud Check");
+
 const parseStoredUser = () => {
   try {
     return JSON.parse(localStorage.getItem("user") || "null");
@@ -322,35 +328,125 @@ export default function Jobs() {
                       ) : (
                         <>
                           <div className="grid gap-4 md:grid-cols-2">
-                            <div>
-                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Scam risk</p>
-                              <p className="mt-2 text-xl font-bold text-orange-200">
+                            <div className="rounded-2xl border border-orange-300/20 bg-orange-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-orange-100/70">{getRiskHeading(llmAnalysis)}</p>
+                              <p className="mt-2 text-xl font-bold text-orange-100">
                                 {llmAnalysis?.scam_risk_level || "Unavailable"}
                               </p>
-                              <p className="mt-2 text-sm text-slate-300">
+                              <p className="mt-2 text-sm font-semibold text-orange-200">
+                                {llmAnalysis?.scam_percentage ?? "N/A"}%
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-cyan-100/70">AI generation risk</p>
+                              <p className="mt-2 text-xl font-bold text-cyan-100">
+                                {llmAnalysis?.ai_risk_level || "Unavailable"}
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-cyan-200">
+                                {llmAnalysis?.ai_generated_percentage ?? "N/A"}%
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{getScamHeading(llmAnalysis)}</p>
+                              <p className="mt-3 text-sm text-slate-300">
                                 {llmAnalysis?.scam_reasoning || "No scam reasoning returned."}
                               </p>
                             </div>
-                            <div>
-                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">AI generation risk</p>
-                              <p className="mt-2 text-xl font-bold text-cyan-200">
-                                {llmAnalysis?.ai_generated_percentage ?? "N/A"}%
-                              </p>
-                              <p className="mt-2 text-sm text-slate-300">
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">AI explanation</p>
+                              <p className="mt-3 text-sm text-slate-300">
                                 {llmAnalysis?.ai_reasoning || "No AI-generation reasoning returned."}
                               </p>
                             </div>
                           </div>
 
-                          <div className="mt-4 flex flex-wrap gap-3">
-                            {(llmAnalysis?.scam_indicators || []).map((indicator) => (
-                              <span
-                                key={`${candidate.candidateId}-${indicator}`}
-                                className="rounded-full border border-rose-300/20 bg-rose-400/10 px-4 py-2 text-sm text-rose-100"
-                              >
-                                {indicator}
-                              </span>
-                            ))}
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Resume facts</p>
+                              <div className="mt-3 grid gap-2 text-sm text-slate-300">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Total words</span>
+                                  <span className="font-semibold text-white">{scamCheck?.total_words ?? "N/A"}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Email</span>
+                                  <span className="font-semibold text-white">{formatFlag(scamCheck?.contact_info?.email)}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Phone</span>
+                                  <span className="font-semibold text-white">{formatFlag(scamCheck?.contact_info?.phone)}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Links</span>
+                                  <span className="font-semibold text-white">{formatFlag(scamCheck?.contact_info?.links)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Sections found</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {(scamCheck?.sections_found || []).length ? (
+                                  scamCheck.sections_found.map((section) => (
+                                    <span
+                                      key={`${candidate.candidateId}-${section}`}
+                                      className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200"
+                                    >
+                                      {section}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200">
+                                    No standard sections detected
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-rose-100/80">Scam indicators</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {(llmAnalysis?.scam_indicators || []).length ? (
+                                  llmAnalysis.scam_indicators.map((indicator) => (
+                                    <span
+                                      key={`${candidate.candidateId}-${indicator}`}
+                                      className="rounded-full border border-rose-300/20 bg-rose-400/10 px-4 py-2 text-sm text-rose-100"
+                                    >
+                                      {indicator}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="rounded-full border border-rose-300/20 bg-rose-400/10 px-4 py-2 text-sm text-rose-100">
+                                    No scam indicators flagged
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-cyan-100/80">AI indicators</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {(llmAnalysis?.ai_indicators || []).length ? (
+                                  llmAnalysis.ai_indicators.map((indicator) => (
+                                    <span
+                                      key={`${candidate.candidateId}-ai-${indicator}`}
+                                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100"
+                                    >
+                                      {indicator}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100">
+                                    No AI indicators flagged
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </>
                       )}

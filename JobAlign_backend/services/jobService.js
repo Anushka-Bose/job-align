@@ -33,11 +33,11 @@ const SKILL_LIBRARY = [
   "javascript",
   "typescript",
   "react",
-  "next.js",
+  "nextjs",
   "vue",
   "angular",
   "node",
-  "node.js",
+  "nodejs",
   "express",
   "mongodb",
   "mysql",
@@ -51,6 +51,7 @@ const SKILL_LIBRARY = [
   "spring",
   "spring boot",
   "docker",
+  "dbms",
   "kubernetes",
   "aws",
   "azure",
@@ -71,6 +72,7 @@ const SKILL_LIBRARY = [
   "tensorflow",
   "pytorch",
   "git",
+  "firebase"
 ];
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

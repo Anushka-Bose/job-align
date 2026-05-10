@@ -1,111 +1,141 @@
-import { useMemo, useState } from "react";
-import { FaEye, FaFilter, FaRobot } from "react-icons/fa";
-
-const sampleApplicants = [
-  {
-    id: "maya-frontend",
-    name: "Maya Rao",
-    email: "maya.rao@example.com",
-    targetRole: "Frontend Developer",
-    location: "Remote",
-    skills: ["React", "TypeScript", "Accessibility", "Design Systems"],
-    matchScore: 96,
-    experience: "4 years",
-    status: "Interview ready",
-  },
-  {
-    id: "arjun-backend",
-    name: "Arjun Mehta",
-    email: "arjun.mehta@example.com",
-    targetRole: "Backend Developer",
-    location: "Bangalore",
-    skills: ["Node.js", "PostgreSQL", "AWS", "APIs"],
-    matchScore: 91,
-    experience: "5 years",
-    status: "Strong shortlist",
-  },
-  {
-    id: "nisha-product",
-    name: "Nisha Kapoor",
-    email: "nisha.kapoor@example.com",
-    targetRole: "Product Engineer",
-    location: "Delhi",
-    skills: ["React", "Python", "Experimentation", "UX"],
-    matchScore: 88,
-    experience: "3 years",
-    status: "Needs review",
-  },
-  {
-    id: "danish-ui",
-    name: "Danish Khan",
-    email: "danish.khan@example.com",
-    targetRole: "UI Engineer",
-    location: "Remote",
-    skills: ["Figma", "React", "CSS", "Motion"],
-    matchScore: 84,
-    experience: "2 years",
-    status: "Portfolio pending",
-  },
-];
-
-const roleOptions = ["All roles", "Frontend Developer", "Backend Developer", "Product Engineer", "UI Engineer"];
+import { useEffect, useMemo, useState } from "react";
+import { FaFilter } from "react-icons/fa";
+import { getRecruiterLeaderboard, runRecruiterScamCheck } from "../api/recruiter";
 
 const getCurrentUser = () => {
   try {
-    return JSON.parse(localStorage.getItem("user")) || {};
+    return JSON.parse(localStorage.getItem("user") || "null") || {};
   } catch {
     return {};
   }
 };
 
-const getStoredApplicants = () => {
-  try {
-    const users = JSON.parse(localStorage.getItem("users")) || [];
+const formatPercentage = (score) => {
+  const numericScore = Number(score);
+  if (!Number.isFinite(numericScore)) return "N/A";
 
-    return users
-      .filter((user) => (user.role || "job applicant") === "job applicant")
-      .map((user, index) => ({
-        id: `stored-${user.email || index}`,
-        name: user.name || "Unnamed Applicant",
-        email: user.email || "No email added",
-        targetRole: user.targetRole || roleOptions[(index % (roleOptions.length - 1)) + 1],
-        location: user.location || "Open to opportunities",
-        skills: user.skills || ["Resume screening", "Communication", "Problem solving"],
-        matchScore: user.matchScore || 78 + ((index * 7) % 17),
-        experience: user.experience || "Profile pending",
-        status: "New applicant",
-      }));
-  } catch {
-    return [];
-  }
+  const normalized = numericScore <= 1 ? numericScore * 100 : numericScore;
+  return `${Math.max(0, Math.min(100, Math.round(normalized)))}%`;
 };
 
+const formatFlag = (value) => (value ? "Available" : "Missing");
+const hasScamSignals = (analysis) =>
+  Number(analysis?.scam_percentage ?? 0) > 25 || (analysis?.scam_indicators || []).length > 0;
+const getScamHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Explanation" : "No Scam Signal Detected");
+const getRiskHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Risk" : "Fraud Check");
+
 export default function RecruiterDashboard() {
-  const [roleFilter, setRoleFilter] = useState("All roles");
-  const [sortOrder, setSortOrder] = useState("high-to-low");
-  const user = getCurrentUser();
+  const user = useMemo(getCurrentUser, []);
+  const token = localStorage.getItem("token");
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [company, setCompany] = useState(user.company || "");
+  const [totalJobs, setTotalJobs] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedCandidateId, setSelectedCandidateId] = useState("");
+  const [checkingCandidateId, setCheckingCandidateId] = useState("");
+  const [scamChecks, setScamChecks] = useState({});
 
-  const applicants = useMemo(() => {
-    const mergedApplicants = [...sampleApplicants, ...getStoredApplicants()];
-    const uniqueApplicants = Array.from(
-      new Map(mergedApplicants.map((applicant) => [applicant.email, applicant])).values()
-    );
+  useEffect(() => {
+    let ignore = false;
 
-    return uniqueApplicants
-      .filter((applicant) => roleFilter === "All roles" || applicant.targetRole === roleFilter)
-      .sort((a, b) =>
-        sortOrder === "high-to-low" ? b.matchScore - a.matchScore : a.matchScore - b.matchScore
-      );
-  }, [roleFilter, sortOrder]);
+    const loadLeaderboard = async () => {
+      if (!token) {
+        setError("Please login again to view the recruiter leaderboard.");
+        setLoading(false);
+        return;
+      }
 
-  const [selectedApplicantId, setSelectedApplicantId] = useState(sampleApplicants[0].id);
-  const selectedApplicant =
-    applicants.find((applicant) => applicant.id === selectedApplicantId) || applicants[0];
-  const topMatchScore = applicants.reduce(
-    (highestScore, applicant) => Math.max(highestScore, applicant.matchScore),
-    0
+      setLoading(true);
+      setError("");
+
+      try {
+        const data = await getRecruiterLeaderboard({ token });
+        if (ignore) return;
+
+        const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+        setLeaderboard(candidates);
+        setCompany(data?.company || user.company || "");
+        setTotalJobs(Number(data?.totalJobs) || 0);
+        setSelectedCandidateId((current) => current || candidates[0]?.candidateId || "");
+      } catch (err) {
+        if (!ignore) {
+          setError(err.message || "Could not load recruiter leaderboard.");
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadLeaderboard();
+
+    return () => {
+      ignore = true;
+    };
+  }, [token, user.company]);
+
+  const selectedCandidate = useMemo(
+    () =>
+      leaderboard.find((candidate) => candidate.candidateId === selectedCandidateId)
+      || leaderboard[0]
+      || null,
+    [leaderboard, selectedCandidateId]
   );
+
+  const averagePipelineScore = useMemo(() => {
+    const scores = leaderboard
+      .map((candidate) => Number(candidate.pipelineScore))
+      .filter((score) => Number.isFinite(score));
+
+    if (!scores.length) return "N/A";
+
+    const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+    return formatPercentage(average);
+  }, [leaderboard]);
+
+  const topPipelineScore = useMemo(
+    () =>
+      leaderboard.reduce((highest, candidate) => {
+        const current = Number(candidate.pipelineScore);
+        return Number.isFinite(current) ? Math.max(highest, current) : highest;
+      }, 0),
+    [leaderboard]
+  );
+
   const firstName = user.name?.trim().split(" ")[0] || "recruiter";
+
+  const handleScamCheck = async (candidateId) => {
+    setCheckingCandidateId(candidateId);
+
+    try {
+      const data = await runRecruiterScamCheck({ candidateId, token });
+      setScamChecks((current) => ({
+        ...current,
+        [candidateId]: data.scamCheck,
+      }));
+    } catch (err) {
+      setScamChecks((current) => ({
+        ...current,
+        [candidateId]: {
+          error: err.message || "Scam check failed.",
+        },
+      }));
+    } finally {
+      setCheckingCandidateId("");
+    }
+  };
+
+  if (loading) {
+    return (
+      <main className="mx-auto max-w-7xl px-6 py-10 text-white lg:px-10 lg:py-14">
+        <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-8 text-slate-200">
+          Loading recruiter leaderboard...
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-10 text-white lg:px-10 lg:py-14">
@@ -119,80 +149,50 @@ export default function RecruiterDashboard() {
               Welcome {firstName} to Smart Align.
             </h1>
             <p className="mt-5 text-lg leading-8 text-slate-300">
-              Review ranked applicant profiles, filter by target role, and open each profile for a
-              quick screening snapshot.
+              Review the live leaderboard returned by the backend for {company || "your company"}.
             </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
-              <p className="text-3xl font-black text-teal-300">{applicants.length}</p>
-              <p className="mt-2 text-sm text-slate-400">visible applicants</p>
+              <p className="text-3xl font-black text-teal-300">{leaderboard.length}</p>
+              <p className="mt-2 text-sm text-slate-400">ranked candidates</p>
             </div>
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
-              <p className="text-3xl font-black text-orange-300">{topMatchScore}%</p>
-              <p className="mt-2 text-sm text-slate-400">top match score</p>
+              <p className="text-3xl font-black text-orange-300">{averagePipelineScore}</p>
+              <p className="mt-2 text-sm text-slate-400">average pipeline score</p>
             </div>
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
-              <p className="text-3xl font-black text-cyan-300">
-                {new Set(applicants.map((applicant) => applicant.targetRole)).size}
-              </p>
-              <p className="mt-2 text-sm text-slate-400">roles in shortlist</p>
+              <p className="text-3xl font-black text-cyan-300">{totalJobs}</p>
+              <p className="mt-2 text-sm text-slate-400">company jobs scanned</p>
             </div>
           </div>
         </div>
+
+        {error ? (
+          <p className="mt-6 rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-rose-100">
+            {error}
+          </p>
+        ) : null}
       </section>
 
       <section className="mt-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.3em] text-orange-300">
-                Applicant Leaderboard
-              </p>
-              <h2 className="mt-3 text-2xl font-bold text-white">Filtered candidate ranking</h2>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Role
-                </span>
-                <select
-                  value={roleFilter}
-                  onChange={(event) => setRoleFilter(event.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-teal-300"
-                >
-                  {roleOptions.map((role) => (
-                    <option key={role}>{role}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Sort
-                </span>
-                <select
-                  value={sortOrder}
-                  onChange={(event) => setSortOrder(event.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-teal-300"
-                >
-                  <option value="high-to-low">Highest match first</option>
-                  <option value="low-to-high">Lowest match first</option>
-                </select>
-              </label>
-            </div>
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-orange-300">
+              Applicant Leaderboard
+            </p>
+            <h2 className="mt-3 text-2xl font-bold text-white">Backend-ranked candidate list</h2>
           </div>
 
           <div className="mt-6 space-y-3">
-            {applicants.map((applicant, index) => (
+            {leaderboard.map((candidate, index) => (
               <button
-                key={applicant.id}
+                key={candidate.candidateId}
                 type="button"
-                onClick={() => setSelectedApplicantId(applicant.id)}
+                onClick={() => setSelectedCandidateId(candidate.candidateId)}
                 className={`w-full rounded-[1.5rem] border p-4 text-left transition hover:border-teal-300/60 hover:bg-white/[0.06] ${
-                  selectedApplicant?.id === applicant.id
+                  selectedCandidate?.candidateId === candidate.candidateId
                     ? "border-teal-300 bg-teal-400/10"
                     : "border-white/10 bg-white/[0.03]"
                 }`}
@@ -203,97 +203,228 @@ export default function RecruiterDashboard() {
                       #{index + 1}
                     </span>
                     <div>
-                      <h3 className="text-lg font-bold text-white">{applicant.name}</h3>
+                      <h3 className="text-lg font-bold text-white">{candidate.candidateName}</h3>
                       <p className="mt-1 text-sm text-slate-400">
-                        {applicant.targetRole} · {applicant.location}
+                        {candidate.matchedJob?.title || "Matched role"} | {candidate.matchedJob?.location || "Location unavailable"}
                       </p>
                     </div>
                   </div>
 
                   <div className="sm:text-right">
-                    <p className="text-2xl font-black text-teal-300">{applicant.matchScore}%</p>
+                    <p className="text-2xl font-black text-teal-300">
+                      {formatPercentage(candidate.pipelineScore)}
+                    </p>
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                      Match
+                      Pipeline
                     </p>
                   </div>
                 </div>
               </button>
             ))}
 
-            {applicants.length === 0 && (
+            {leaderboard.length === 0 && !error ? (
               <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-6 text-slate-300">
-                No applicants match this filter yet.
+                No candidates are available in the leaderboard yet.
               </div>
-            )}
+            ) : null}
           </div>
         </div>
 
         <aside className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-xl shadow-teal-500/10">
-          {selectedApplicant ? (
+          {selectedCandidate ? (
             <>
               <p className="text-sm font-semibold uppercase tracking-[0.3em] text-teal-200">
                 Profile Snapshot
               </p>
-              <h2 className="mt-3 text-3xl font-black text-white">{selectedApplicant.name}</h2>
-              <p className="mt-2 text-sm text-slate-400">{selectedApplicant.email}</p>
+              <h2 className="mt-3 text-3xl font-black text-white">{selectedCandidate.candidateName}</h2>
+              <p className="mt-2 text-sm text-slate-400">{selectedCandidate.candidateEmail}</p>
 
               <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
                 <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
-                  <p className="text-sm text-slate-400">Target role</p>
-                  <p className="mt-2 font-semibold text-white">{selectedApplicant.targetRole}</p>
+                  <p className="text-sm text-slate-400">Matched job</p>
+                  <p className="mt-2 font-semibold text-white">
+                    {selectedCandidate.matchedJob?.title || "Not available"}
+                  </p>
                 </div>
                 <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
-                  <p className="text-sm text-slate-400">Experience</p>
-                  <p className="mt-2 font-semibold text-white">{selectedApplicant.experience}</p>
+                  <p className="text-sm text-slate-400">Eligibility score</p>
+                  <p className="mt-2 font-semibold text-white">
+                    {formatPercentage(selectedCandidate.eligibilityScore)}
+                  </p>
                 </div>
                 <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
-                  <p className="text-sm text-slate-400">Screening status</p>
-                  <p className="mt-2 font-semibold text-white">{selectedApplicant.status}</p>
+                  <p className="text-sm text-slate-400">Top leaderboard score</p>
+                  <p className="mt-2 font-semibold text-white">{formatPercentage(topPipelineScore)}</p>
                 </div>
               </div>
 
               <div className="mt-6">
-                <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
-                  Skills
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {selectedApplicant.skills.map((skill) => (
-                    <span
-                      key={skill}
-                      className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-3">
                 <button
                   type="button"
-                  className="flex items-center justify-center gap-3 rounded-full bg-teal-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
-                >
-                  <FaEye />
-                  View Resume
-                </button>
-                {/*<button
-                  type="button"
-                  className="flex items-center justify-center gap-3 rounded-full border border-cyan-300/40 bg-cyan-300/10 px-5 py-3 font-semibold text-cyan-100 transition hover:border-cyan-200 hover:bg-cyan-300/15"
-                >
-                  <FaRobot />
-                  AI Detection
-                </button>*/}
-                <button
-                  type="button"
-                  className="flex items-center justify-center gap-3 rounded-full border border-orange-300/40 bg-orange-300/10 px-5 py-3 font-semibold text-orange-100 transition hover:border-orange-200 hover:bg-orange-300/15"
+                  onClick={() => handleScamCheck(selectedCandidate.candidateId)}
+                  disabled={checkingCandidateId === selectedCandidate.candidateId}
+                  className="flex w-full items-center justify-center gap-3 rounded-full border border-orange-300/40 bg-orange-300/10 px-5 py-3 font-semibold text-orange-100 transition hover:border-orange-200 hover:bg-orange-300/15 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   <FaFilter />
-                  Scam Filtering
+                  {checkingCandidateId === selectedCandidate.candidateId ? "Running scam check..." : "Scam Filtering"}
                 </button>
               </div>
+
+              {scamChecks[selectedCandidate.candidateId] ? (
+                <div className="mt-6 rounded-3xl border border-white/10 bg-slate-900/70 p-5">
+                  {"error" in scamChecks[selectedCandidate.candidateId] ? (
+                    <p className="text-rose-200">{scamChecks[selectedCandidate.candidateId].error}</p>
+                  ) : (
+                    <>
+                      {(() => {
+                        const scamCheck = scamChecks[selectedCandidate.candidateId];
+                        const llmAnalysis = scamCheck?.llm_analysis;
+
+                        return (
+                          <>
+                      <p className="text-sm font-semibold uppercase tracking-[0.24em] text-orange-300">
+                        Scam Analysis
+                      </p>
+
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-orange-300/20 bg-orange-400/10 p-4">
+                          <p className="text-xs uppercase tracking-[0.2em] text-orange-100/70">{getRiskHeading(llmAnalysis)}</p>
+                          <p className="mt-2 text-2xl font-black text-orange-100">
+                            {llmAnalysis?.scam_risk_level || "Unavailable"}
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-orange-200">
+                            {llmAnalysis?.scam_percentage ?? "N/A"}%
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                          <p className="text-xs uppercase tracking-[0.2em] text-cyan-100/70">AI Writing Risk</p>
+                          <p className="mt-2 text-2xl font-black text-cyan-100">
+                            {llmAnalysis?.ai_risk_level || "Unavailable"}
+                          </p>
+                          <p className="mt-2 text-sm font-semibold text-cyan-200">
+                            {llmAnalysis?.ai_generated_percentage ?? "N/A"}%
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4">
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{getScamHeading(llmAnalysis)}</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-300">
+                            {llmAnalysis?.scam_reasoning || "No scam reasoning returned."}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">AI Explanation</p>
+                          <p className="mt-2 text-sm leading-6 text-slate-300">
+                            {llmAnalysis?.ai_reasoning || "No AI-generation reasoning returned."}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Resume Facts</p>
+                          <div className="mt-3 grid gap-2 text-sm text-slate-300">
+                            <div className="flex items-center justify-between gap-3">
+                              <span>Total words</span>
+                              <span className="font-semibold text-white">
+                                {scamCheck?.total_words ?? "N/A"}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span>Email</span>
+                              <span className="font-semibold text-white">
+                                {formatFlag(scamCheck?.contact_info?.email)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span>Phone</span>
+                              <span className="font-semibold text-white">
+                                {formatFlag(scamCheck?.contact_info?.phone)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between gap-3">
+                              <span>Links</span>
+                              <span className="font-semibold text-white">
+                                {formatFlag(scamCheck?.contact_info?.links)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Sections Found</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(scamCheck?.sections_found || []).length ? (
+                              scamCheck.sections_found.map((section) => (
+                                <span
+                                  key={`${selectedCandidate.candidateId}-${section}`}
+                                  className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200"
+                                >
+                                  {section}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200">
+                                No standard sections detected
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4">
+                          <p className="text-sm uppercase tracking-[0.2em] text-rose-100/80">Scam Indicators</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(llmAnalysis?.scam_indicators || []).length ? (
+                              llmAnalysis.scam_indicators.map((indicator) => (
+                                <span
+                                  key={`${selectedCandidate.candidateId}-${indicator}`}
+                                  className="rounded-full border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-100"
+                                >
+                                  {indicator}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="rounded-full border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">
+                                No scam indicators flagged
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                          <p className="text-sm uppercase tracking-[0.2em] text-cyan-100/80">AI Indicators</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {(llmAnalysis?.ai_indicators || []).length ? (
+                              llmAnalysis.ai_indicators.map((indicator) => (
+                                <span
+                                  key={`${selectedCandidate.candidateId}-ai-${indicator}`}
+                                  className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-100"
+                                >
+                                  {indicator}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-2 text-sm text-cyan-100">
+                                No AI indicators flagged
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                          </>
+                        );
+                      })()}
+                    </>
+                  )}
+                </div>
+              ) : null}
             </>
           ) : (
-            <p className="text-slate-300">Select an applicant to view their profile.</p>
+            <p className="text-slate-300">Select a candidate to view the profile snapshot.</p>
           )}
         </aside>
       </section>

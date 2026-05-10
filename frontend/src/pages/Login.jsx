@@ -48,6 +48,7 @@ export default function Login({ setIsAuthenticated }) {
   const handleLogin = async () => {
     try {
       const data = await login({ email, password });
+      const destination = data.user?.role === "recruiter" ? "/recruiter-dashboard" : "/jobs";
 
       localStorage.setItem("token", data.token);
       localStorage.setItem(
@@ -56,7 +57,7 @@ export default function Login({ setIsAuthenticated }) {
       );
 
       setIsAuthenticated(true);
-      navigate("/jobs");
+      navigate(destination);
     } catch (err) {
       alert(err.message);
     }

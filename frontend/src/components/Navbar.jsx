@@ -19,7 +19,11 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
     }
   })();
   const roleAwareItems = user?.role === "recruiter"
-    ? navItems
+    ? [
+        { to: "/", label: "Home" },
+        { to: "/recruiter-jobs", label: "Jobs" },
+        { to: "/recruiter-dashboard", label: "Leaderboard" },
+      ]
     : [...navItems, { to: "/upload", label: "Upload" }];
   const token = localStorage.getItem("token");
   const canSeeNotifications = isAuthenticated && user?.role === "candidate";

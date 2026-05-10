@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import re
+from datetime import date
 from typing import Dict, List
 
 from dotenv import load_dotenv
@@ -17,6 +18,11 @@ try:
     import PyPDF2
 except ImportError:
     PyPDF2 = None
+
+try:
+    import fitz
+except ImportError:
+    fitz = None
 
 try:
     import docx
@@ -36,6 +42,41 @@ _client = None
 _llm_unavailable = False
 _llm_cache: Dict[str, Dict] = {}
 _last_llm_error = ""
+PROMPT_VERSION = "chronology_guard_v2"
+
+MONTHS = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}
+
+DATE_RANGE_RE = re.compile(
+    r"((?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:19|20)\d{2})"
+    r"\s*(?:-|to|through|\u2013|\u2014)\s*"
+    r"((?:(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+)?(?:19|20)\d{2}|present|current|now)",
+    re.IGNORECASE
+)
+
+CHRONOLOGY_NEGATION_TOKENS = (
+    "future relative to the current date",
+    "future relative to current date",
+    "future-dated",
+    "in the future",
+    "impossible timeline",
+    "timeline is illogical",
+    "chronology issue",
+    "chronological inconsistency",
+    "significant resume error",
+)
 
 
 def extract_text(file_path):
@@ -43,17 +84,27 @@ def extract_text(file_path):
     text = ""
 
     if ext == ".pdf":
-        if PyPDF2 is None:
-            return "ERROR: PyPDF2 not installed"
-        try:
-            with open(file_path, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                for page in reader.pages:
-                    extracted = page.extract_text()
-                    if extracted:
-                        text += extracted + " "
-        except Exception as e:
-            return f"ERROR reading PDF: {e}"
+        if fitz is not None:
+            try:
+                with fitz.open(file_path) as pdf:
+                    for page in pdf:
+                        extracted = page.get_text()
+                        if extracted:
+                            text += extracted + " "
+            except Exception as e:
+                return f"ERROR reading PDF: {e}"
+        elif PyPDF2 is not None:
+            try:
+                with open(file_path, "rb") as f:
+                    reader = PyPDF2.PdfReader(f)
+                    for page in reader.pages:
+                        extracted = page.extract_text()
+                        if extracted:
+                            text += extracted + " "
+            except Exception as e:
+                return f"ERROR reading PDF: {e}"
+        else:
+            return "ERROR: No PDF reader installed"
 
     elif ext in [".docx", ".doc"]:
         if docx is None:
@@ -139,6 +190,119 @@ def _strip_json_fence(content: str) -> str:
     if start != -1 and end != -1 and end >= start:
         return text[start:end + 1]
     return text
+
+
+def _parse_month_year(token: str, today: date) -> tuple[int, int] | None:
+    text = (token or "").strip().lower()
+    if text in ("present", "current", "now"):
+        return today.year, today.month
+
+    year_match = re.search(r"\b(19|20)\d{2}\b", text)
+    if not year_match:
+        return None
+
+    year = int(year_match.group(0))
+    month = 1
+    for name, number in MONTHS.items():
+        if re.search(rf"\b{name}\b", text):
+            month = number
+            break
+    return year, month
+
+
+def _extract_chronology(text: str, today: date | None = None) -> Dict:
+    today = today or date.today()
+    entries = []
+    lines = [line.strip() for line in re.split(r"[\r\n]+", text or "") if line.strip()]
+
+    for index, line in enumerate(lines):
+        for match in DATE_RANGE_RE.finditer(line):
+            context = " ".join(lines[max(0, index - 1): min(len(lines), index + 2)]).lower()
+            category = "other"
+            if re.search(r"\b(education|b\.?tech|bachelor|undergraduate|university|college|degree|cgpa)\b", context):
+                category = "education"
+            elif re.search(r"\b(intern|internship|trainee)\b", context):
+                category = "internship"
+            elif re.search(r"\b(experience|engineer|developer|analyst|associate|work)\b", context):
+                category = "experience"
+
+            start = _parse_month_year(match.group(1), today)
+            end = _parse_month_year(match.group(2), today)
+            if not start or not end:
+                continue
+
+            entries.append({
+                "category": category,
+                "start": start,
+                "end": end,
+                "raw": match.group(0),
+                "context": context,
+            })
+
+    issues: List[str] = []
+    future_dates: List[str] = []
+    valid_student_internship = False
+    today_value = (today.year, today.month)
+
+    for entry in entries:
+        if entry["start"] > entry["end"]:
+            issues.append(f"date range is reversed: {entry['raw']}")
+        if entry["start"] > today_value:
+            future_dates.append(entry["raw"])
+        if entry["end"] > today_value and not re.search(r"\b(present|current|now)\b", entry["raw"], re.IGNORECASE):
+            future_dates.append(entry["raw"])
+
+    education_entries = [entry for entry in entries if entry["category"] == "education"]
+    internship_entries = [entry for entry in entries if entry["category"] == "internship"]
+
+    for education in education_entries:
+        for internship in internship_entries:
+            if internship["start"] >= education["start"] and internship["end"] <= today_value:
+                valid_student_internship = True
+                break
+        if valid_student_internship:
+            break
+
+    has_issue = bool(issues or future_dates)
+    if has_issue:
+        summary = "; ".join(issues + [f"future-dated entry: {value}" for value in future_dates[:3]])
+    elif valid_student_internship:
+        summary = "Timeline appears internally consistent. Internship dates fit within an ongoing education timeline and are not future-dated."
+    else:
+        summary = "No explicit chronology contradiction detected from parsed date ranges."
+
+    return {
+        "entries": entries,
+        "issues": issues,
+        "future_dates": future_dates,
+        "valid_student_internship": valid_student_internship,
+        "has_issue": has_issue,
+        "summary": summary,
+    }
+
+
+def _sanitize_chronology_claims(result: Dict, chronology: Dict) -> Dict:
+    if chronology.get("has_issue"):
+        return result
+
+    cleaned = dict(result)
+    indicators = [
+        indicator
+        for indicator in list(cleaned.get("scam_indicators") or [])
+        if not any(token in indicator.lower() for token in CHRONOLOGY_NEGATION_TOKENS)
+    ]
+    cleaned["scam_indicators"] = indicators
+
+    reasoning = str(cleaned.get("scam_reasoning") or cleaned.get("scam_explanation") or "")
+    lower_reasoning = reasoning.lower()
+    if any(token in lower_reasoning for token in CHRONOLOGY_NEGATION_TOKENS):
+        cleaned["scam_reasoning"] = chronology["summary"]
+        cleaned["scam_explanation"] = chronology["summary"]
+        cleaned["scam_percentage"] = min(int(cleaned.get("scam_percentage", 0) or 0), 25)
+        cleaned["scam_risk"] = _risk(cleaned["scam_percentage"])
+        cleaned["scam_risk_level"] = cleaned["scam_risk"]
+
+    return cleaned
 
 
 def _repeat_bullet_ratio(lines: List[str]) -> float:
@@ -237,10 +401,16 @@ def _compact_result(ai: Dict, scam: Dict, llm_used: bool, llm_status: str) -> Di
     return {
         "ai_generated_percentage": ai_score,
         "ai_risk": str(ai.get("risk_level") or _risk(ai_score)).upper(),
+        "ai_risk_level": str(ai.get("risk_level") or _risk(ai_score)).upper(),
+        "ai_indicators": list(ai.get("indicators") or [])[:8],
         "scam_percentage": scam_score,
         "scam_risk": str(scam.get("risk_level") or _risk(scam_score)).upper(),
+        "scam_risk_level": str(scam.get("risk_level") or _risk(scam_score)).upper(),
+        "scam_indicators": list(scam.get("indicators") or [])[:8],
         "ai_explanation": ai.get("reasoning", ""),
+        "ai_reasoning": ai.get("reasoning", ""),
         "scam_explanation": scam.get("reasoning", ""),
+        "scam_reasoning": scam.get("reasoning", ""),
         "llm_used": llm_used,
         "llm_status": llm_status
     }
@@ -289,21 +459,28 @@ def _normalize_llm_result(parsed: Dict, fallback: Dict) -> Dict:
 def analyze_with_llm(text):
     global _llm_unavailable, _last_llm_error
     fallback = rule_based_analysis(text, "rules")
+    chronology = _extract_chronology(text)
+    today = date.today()
 
     if not _llm_enabled():
         status = "disabled" if os.environ.get("SCAM_FILTER_USE_LLM", "auto").lower() in ("0", "false", "no", "off", "disabled") else "no_api_key"
         fallback["llm_status"] = status
-        return fallback
+        fallback["chronology_summary"] = chronology["summary"]
+        return _sanitize_chronology_claims(fallback, chronology)
     if _llm_unavailable:
         fallback["llm_status"] = "unavailable_after_error"
-        return fallback
+        fallback["chronology_summary"] = chronology["summary"]
+        return _sanitize_chronology_claims(fallback, chronology)
 
-    cache_key = hashlib.sha256(text[:MAX_LLM_CHARS].encode("utf-8", errors="ignore")).hexdigest()
+    cache_key = hashlib.sha256(
+        f"{PROMPT_VERSION}\n{today.isoformat()}\n{chronology['summary']}\n{text[:MAX_LLM_CHARS]}".encode("utf-8", errors="ignore")
+    ).hexdigest()
     if cache_key in _llm_cache:
         return _llm_cache[cache_key]
 
     prompt = f"""
 You are a strict resume fraud and AI-writing detector.
+Today's date is {today.isoformat()}.
 
 Return ONLY valid JSON:
 {{
@@ -322,6 +499,11 @@ Rules:
 - AI-generated means likely AI-written or heavily AI-polished text.
 - Do not mark a normal student resume as scam just because it is short.
 - Missing phone/email is a verification issue, not automatic scam.
+- Do not claim a timeline is suspicious unless the text shows an actual contradiction.
+- A student can validly have internships, part-time work, or projects during an ongoing degree.
+- An education start date followed by an internship in a later semester or summer is normal and not suspicious.
+- Only flag chronology if dates are impossible on their face, clearly overlap in a contradictory way, or are in the future relative to the resume context.
+- Use this parsed chronology guidance when evaluating dates: {chronology["summary"]}
 - Mention concrete evidence from the text.
 
 Resume:
@@ -336,6 +518,8 @@ Resume:
         )
         parsed = json.loads(_strip_json_fence(response.text))
         result = _normalize_llm_result(parsed, fallback)
+        result["chronology_summary"] = chronology["summary"]
+        result = _sanitize_chronology_claims(result, chronology)
         _llm_cache[cache_key] = result
         return result
     except Exception as e:
@@ -343,6 +527,7 @@ Resume:
         if _is_llm_error(e):
             _llm_unavailable = True
         fallback["llm_status"] = "fallback_after_llm_error"
+        fallback["chronology_summary"] = chronology["summary"]
         fallback["ai_explanation"] = (
             "LLM analysis was unavailable, so this is a rule-based estimate from generic phrasing, "
             "repetition, vocabulary variety, and template markers."
@@ -353,7 +538,7 @@ Resume:
         )
         if os.environ.get("SCAM_FILTER_DEBUG", "").lower() in ("1", "true", "yes"):
             fallback["llm_error"] = _last_llm_error
-        return fallback
+        return _sanitize_chronology_claims(fallback, chronology)
 
 
 def run_pipeline(file_path):

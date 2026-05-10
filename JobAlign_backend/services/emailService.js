@@ -52,7 +52,7 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
 
   const skillsLine = matchedSkills.length
     ? matchedSkills.join(", ")
-    : "New Job Alerts!!!!.";
+    : "New Job Alerts!!!!";
 
   const info = await mailer.sendMail({
     from: process.env.EMAIL_FROM,
@@ -128,7 +128,7 @@ export const sendTopJobMatchesEmail = async ({
     };
   }
 
-  const summarizedJobs = jobs.slice(0, 3).map((job) => {
+  const summarizedJobs = jobs.slice(0, 5).map((job) => {
     const rawScore = typeof job?.score === "number"
       ? job.score
       : (typeof job?.similarity_score === "number" ? job.similarity_score : null);
@@ -168,6 +168,8 @@ export const sendTopJobMatchesEmail = async ({
     text: [
       `Hi ${candidateName || "there"},`,
       "",
+      "New Job Alerts!!!!",
+      "",
       "Your resume was analyzed successfully. Here are your top matched jobs:",
       "",
       ...textBlocks,
@@ -178,6 +180,7 @@ export const sendTopJobMatchesEmail = async ({
     html: `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
         <p>Hi ${candidateName || "there"},</p>
+        <p style="font-size: 18px; font-weight: 700; color: #0f766e; margin: 0 0 12px;">New Job Alerts!!!!</p>
         <p>Your resume was analyzed successfully. Here are your top matched jobs:</p>
         ${htmlBlocks}
         ${resumeScore !== null ? `<p style="margin-top: 16px;">Resume score for the top role: <strong>${resumeScore}</strong></p>` : ""}
