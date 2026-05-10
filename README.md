@@ -1,203 +1,172 @@
-# job-align
-A smart automation of hiring process from resume upload to correct job for specific user.
-# Resume Intelligence Engine (ML Pipeline)
+# JobAlign
 
-## Overview
+JobAlign is an end-to-end AI hiring intelligence platform that improves hiring outcomes for both candidates and recruiters. It transforms unstructured resume data into actionable insights, maps candidate profiles to relevant opportunities, and supports recruiter decision-making with transparent, data-backed evaluations.
 
-This project implements a machine learning pipeline that analyzes resumes and matches them with relevant job descriptions using semantic understanding.
+By combining a modern React frontend, an Express/MongoDB backend, and a Python NLP pipeline, JobAlign helps teams move from manual screening to faster, more consistent, and more explainable talent matching.
 
-The system performs:
+## Table of Contents
 
-* Resume parsing
-* Skill extraction
-* Semantic job matching
-* Skill gap analysis
-* Resume scoring
-* Sentence-level feedback (red/green highlighting with suggestions)
+- [What JobAlign Does](#what-jobalign-does)
+- [Core Capabilities](#core-capabilities)
+- [System Architecture](#system-architecture)
+- [Technology Stack](#technology-stack)
+- [Getting Started](#getting-started)
+- [Environment Variables](#environment-variables)
+- [Run the Application](#run-the-application)
+- [API Highlights](#api-highlights)
+- [ML Pipeline Responsibilities](#ml-pipeline-responsibilities)
+- [Development Commands](#development-commands)
+- [Maintainer](#maintainer)
 
----
+## What JobAlign Does
 
-## Features
+JobAlign supports the full candidate-to-recruiter evaluation journey:
 
-### 1. Resume Processing
+- **For candidates:** analyzes resumes, identifies strengths and gaps, and surfaces role recommendations aligned with skill profile and experience.
+- **For recruiters:** provides ranked candidate views, structured fit signals, and authenticity checks to reduce screening time and improve confidence.
+- **For both sides:** creates a more objective and explainable process through AI-assisted matching, scoring, and feedback.
 
-* Extract text from PDF resumes
-* Clean and preprocess text
-* Split into sentences
+## Core Capabilities
 
-### 2. Skill Extraction
+- Secure candidate and recruiter authentication.
+- Resume PDF upload and text extraction.
+- AI-assisted resume analysis, scoring, and skill extraction.
+- Semantic job matching and personalized job feed generation.
+- Sentence-level resume feedback with rewrite assistance.
+- Recruiter candidate leaderboard and resume authenticity checks.
+- Notification support for newly matched opportunities.
 
-* Hybrid approach:
+## System Architecture
 
-  * Keyword detection
-  * Semantic similarity using embeddings
-
-### 3. Job Matching
-
-* Uses transformer-based embeddings
-* Computes cosine similarity
-* Ranks jobs based on relevance
-
-### 4. Skill Gap Analysis
-
-* Compares resume skills with job requirements
-* Identifies missing skills
-
-### 5. Resume Scoring
-
-* Score based on:
-
-  * Skill match
-  * Semantic similarity
-
-### 6. Resume Feedback (Key Feature)
-
-* Sentence-level evaluation:
-
-  * GREEN → strong match
-  * YELLOW → moderate
-  * RED → weak/irrelevant
-* Suggests improved versions of weak sentences
-
----
-
-## Project Structure
-
-```
-ml/
-│
-├── preprocessing/
-├── embeddings/
-├── extraction/
-├── matching/
-├── scoring/
-├── feedback/
-│
-├── api.py
-├── pipeline.py
-└── config.py
+```text
+.
+|-- frontend/              # React + Vite client application
+|-- JobAlign_backend/      # Express API, auth, data models, and integrations
+|-- ml/                    # Python NLP and matching pipeline
+|-- requirements.txt       # Python dependencies
+`-- README.md
 ```
 
----
+## Technology Stack
 
-## Installation
+- **Frontend:** React, Vite, Tailwind CSS, React Router
+- **Backend:** Node.js, Express, MongoDB, Mongoose, JWT, Multer
+- **ML/NLP:** Python, spaCy, Sentence Transformers, scikit-learn, PyMuPDF
+- **External APIs:** Remotive jobs API
+- **Optional AI Integration:** Google Generative AI
 
-### 1. Clone repository
+## Getting Started
 
+### Prerequisites
+
+- Node.js (LTS) and npm
+- Python 3.10 or newer
+- MongoDB connection string
+- Git (recommended)
+
+### Installation
+
+From the repository root:
+
+```bash
+# 1) Install Python dependencies
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+
+# 2) Install backend dependencies
+cd JobAlign_backend
+npm install
+
+# 3) Install frontend dependencies
+cd ../frontend
+npm install
 ```
-git clone <your-repo-url>
-cd <repo-folder>
+
+## Environment Variables
+
+Create `JobAlign_backend/.env`:
+
+```env
+PORT=3000
+MONGO_DB_URL=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
+DEFAULT_JOB_LOCATION=India
+PYTHON_EXECUTABLE=python
+GEMINI_API_KEY=your_gemini_api_key
 ```
 
-### 2. Install dependencies
+Create `frontend/.env` (if frontend and backend are on different origins):
 
+```env
+VITE_API_BASE_URL=http://localhost:3000
 ```
+
+## Run the Application
+
+Start the backend server:
+
+```bash
+cd JobAlign_backend
+npm run dev
+```
+
+Start the frontend application:
+
+```bash
+cd ../frontend
+npm run dev
+```
+
+Default frontend URL:
+
+```text
+http://localhost:5173
+```
+
+## API Highlights
+
+- `POST /api/auth/signup` - Register candidate or recruiter
+- `POST /api/auth/login` - Authenticate and return token
+- `POST /api/resume/upload` - Upload candidate resume PDF
+- `GET /feed/:userId` - Retrieve personalized job feed
+- `GET /api/recruiter/candidates/leaderboard` - List ranked candidates
+- `POST /api/recruiter/candidates/:candidateId/scam-check` - Run authenticity check
+- `GET /api/notifications` - Fetch notifications
+- `PATCH /api/notifications/:notificationId/read` - Mark notification as read
+
+Protected routes require a valid authorization token.
+
+## ML Pipeline Responsibilities
+
+The `ml/` module powers:
+
+- Resume text extraction and cleaning
+- Skill and competency extraction
+- Experience estimation
+- Semantic matching and similarity scoring
+- Gap analysis and resume feedback generation
+
+Backend integration is handled through `JobAlign_backend/services/pipelineService.js`.
+
+## Development Commands
+
+```bash
+# Frontend (run from /frontend)
+cd frontend
+npm run dev
+npm run build
+npm run lint
+
+# Backend (run from /JobAlign_backend)
+cd ../JobAlign_backend
+npm run dev
+npm start
+
+# Python setup (run from repository root)
+cd ..
 pip install -r requirements.txt
 ```
 
-### 3. Install spaCy model
-
-```
-python -m spacy download en_core_web_sm
-```
-
----
-
-## Running the Application
-
-### Start FastAPI server
-
-```
-uvicorn ml.api:app --reload
-```
-
-### Open API docs
-
-```
-http://127.0.0.1:8000/docs
-```
-
----
-
-## API Endpoints
-
-### 1. Analyze Resume (Text)
-
-**POST** `/analyze-text`
-
-Input:
-
-```
-{
-  "resume_text": "...",
-  "jobs": [...]
-}
-```
-
----
-
-### 2. Analyze Resume (PDF Upload)
-
-**POST** `/analyze-pdf`
-
-* Upload a PDF resume
-* Returns full analysis
-
----
-
-## Sample Output
-
-```
-{
-  "resume_score": 84,
-  "top_jobs": [
-    {
-      "title": "Machine Learning Engineer",
-      "score": 0.89
-    }
-  ],
-  "skill_gap": ["docker", "aws"],
-  "highlights": [
-    {
-      "text": "Worked on projects",
-      "label": "RED",
-      "suggestion": "Built machine learning models using Python"
-    }
-  ]
-}
-```
-
----
-
-## Tech Stack
-
-* Python
-* FastAPI
-* spaCy
-* Sentence Transformers
-* Scikit-learn
-
----
-
-## Key Concept
-
-The system uses **semantic embeddings** instead of keyword matching, enabling:
-
-* Better understanding of resume content
-* More accurate job matching
-* Intelligent feedback generation
-
----
-
-## Future Improvements
-
-* LLM-based suggestion engine
-* Advanced skill graph
-* Multi-job comparison
-* Real-time recommendation system
-
----
-
-## Author
+## Maintainer
 
 Anushka Bose
