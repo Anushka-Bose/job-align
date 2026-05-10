@@ -56,7 +56,7 @@ export default function ResumeUpload() {
         setStatus("Resume uploaded and matched against live jobs.");
       }
 
-      navigate("/jobs");
+      navigate("/resume-score");
     } catch (err) {
       setStatus(err.message || "Upload failed");
     } finally {
