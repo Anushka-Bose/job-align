@@ -4,7 +4,6 @@ import JobCard from "../components/JobCard";
 import { getCandidateJobFeed } from "../api/feed";
 import { getRecruiterLeaderboard, runRecruiterScamCheck } from "../api/recruiter";
 import { getNotifications, markNotificationRead } from "../api/notifications";
-import { readLatestAnalysis, writeLatestAnalysis } from "../utils/analysisStorage";
 
 const fallbackJobs = [
   {
@@ -51,10 +50,9 @@ export default function Jobs() {
   const user = useMemo(parseStoredUser, []);
   const token = localStorage.getItem("token");
   const isRecruiter = user?.role === "recruiter";
-  const uploadedAnalysis = location.state?.uploadedAnalysis || null;
-  const latestAnalysis = useMemo(() => uploadedAnalysis || readLatestAnalysis(), [uploadedAnalysis]);
-  const candidateAnalysis = uploadedAnalysis || latestAnalysis || null;
-  const shouldBlockOnDashboardLoad = isRecruiter || !candidateAnalysis;
+  const source = new URLSearchParams(location.search).get("source");
+  const shouldPollLatest = source === "upload";
+  const shouldBlockOnDashboardLoad = true;
 
   const [candidateFeed, setCandidateFeed] = useState(null);
   const [recruiterFeed, setRecruiterFeed] = useState(null);
@@ -63,6 +61,7 @@ export default function Jobs() {
   const [error, setError] = useState("");
   const [checkingCandidateId, setCheckingCandidateId] = useState("");
   const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
+  const candidateAnalysis = candidateFeed?.analysis || null;
   const needsResumeUpload = !isRecruiter && Boolean(candidateFeed?.needsResumeUpload);
   const emptyStateTitle = candidateFeed?.emptyState?.title || "Upload your resume to see jobs";
   const emptyStateMessage = candidateFeed?.emptyState?.message
@@ -90,12 +89,31 @@ export default function Jobs() {
           return;
         }
 
-        const data = await getCandidateJobFeed({
-          userId: user.id,
-          token,
-        });
+        let latestData = null;
+        const attempts = shouldPollLatest ? 8 : 1;
+
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          latestData = await getCandidateJobFeed({
+            userId: user.id,
+            token,
+          });
+
+          if (
+            !shouldPollLatest
+            || latestData?.analysis
+            || (Array.isArray(latestData?.jobs) && latestData.jobs.length)
+            || latestData?.needsResumeUpload === false
+          ) {
+            break;
+          }
+
+          await new Promise((resolve) => {
+            window.setTimeout(resolve, 600);
+          });
+        }
+
         if (!ignore) {
-          setCandidateFeed(data);
+          setCandidateFeed(latestData);
         }
       } catch (err) {
         if (!ignore) {
@@ -112,7 +130,7 @@ export default function Jobs() {
     return () => {
       ignore = true;
     };
-  }, [isRecruiter, shouldBlockOnDashboardLoad, token, user?.id]);
+  }, [isRecruiter, shouldBlockOnDashboardLoad, shouldPollLatest, token, user?.id]);
 
   useEffect(() => {
     let ignore = false;
@@ -150,9 +168,7 @@ export default function Jobs() {
     const jobs = Array.isArray(candidateFeed?.jobs) && candidateFeed.jobs.length
       ? candidateFeed.jobs
       : (
-        Array.isArray(uploadedAnalysis?.top_jobs) && uploadedAnalysis.top_jobs.length
-          ? uploadedAnalysis.top_jobs
-          : (Array.isArray(latestAnalysis?.top_jobs) ? latestAnalysis.top_jobs : [])
+        Array.isArray(candidateAnalysis?.top_jobs) ? candidateAnalysis.top_jobs : []
       );
 
     if (!jobs.length) {
@@ -179,7 +195,7 @@ export default function Jobs() {
       searchQuery: job.searchQuery || job.search_query,
       isFallback: false,
     }));
-  }, [candidateFeed, latestAnalysis, needsResumeUpload, uploadedAnalysis]);
+  }, [candidateAnalysis, candidateFeed, needsResumeUpload]);
 
   const averageMatch = useMemo(() => {
     const source = isRecruiter ? recruiterFeed?.candidates || [] : candidateJobs;
@@ -217,13 +233,11 @@ export default function Jobs() {
 
   const candidateKeywords =
     candidateFeed?.searchQueries
-    || uploadedAnalysis?.search_keywords
-    || latestAnalysis?.search_keywords
+    || candidateAnalysis?.search_keywords
     || [];
   const resumeSkills =
     candidateFeed?.resumeSkills
-    || uploadedAnalysis?.resume_skills
-    || latestAnalysis?.resume_skills
+    || candidateAnalysis?.resume_skills
     || [];
   const overallResumeScore = Number(candidateAnalysis?.resume_score);
   const topMatchedJob = candidateAnalysis?.match_summary?.best_job_title
@@ -231,12 +245,6 @@ export default function Jobs() {
     || "Not available";
   const experienceSummary = candidateAnalysis?.match_summary?.message || "Resume analysis is available.";
   const leaderboard = recruiterFeed?.candidates || [];
-
-  useEffect(() => {
-    if (uploadedAnalysis) {
-      writeLatestAnalysis(uploadedAnalysis);
-    }
-  }, [uploadedAnalysis]);
 
   const handleNotificationOpen = async (notification) => {
     try {
@@ -692,8 +700,7 @@ export default function Jobs() {
           {!needsResumeUpload ? (
             <section className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
             {!candidateFeed?.jobs?.length && (
-              (Array.isArray(uploadedAnalysis?.top_jobs) && uploadedAnalysis.top_jobs.length)
-              || (Array.isArray(latestAnalysis?.top_jobs) && latestAnalysis.top_jobs.length)
+              (Array.isArray(candidateAnalysis?.top_jobs) && candidateAnalysis.top_jobs.length)
             ) ? (
               <div className="md:col-span-2 rounded-[1.5rem] border border-teal-300/20 bg-teal-400/10 p-4 text-sm text-teal-100">
                 Showing jobs from your latest uploaded resume analysis.

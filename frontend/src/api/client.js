@@ -24,7 +24,8 @@ export const apiRequest = async (path, options = {}) => {
 
   const response = await fetch(buildUrl(path), {
     ...options,
-    headers
+    headers,
+    cache: "no-store",
   });
 
   const contentType = response.headers.get("content-type") || "";

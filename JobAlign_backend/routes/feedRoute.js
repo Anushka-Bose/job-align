@@ -9,6 +9,18 @@ import { fetchJobsFromApi } from "../services/jobService.js";
 
 const router = express.Router();
 const DEFAULT_PREFERRED_LOCATION = process.env.DEFAULT_JOB_LOCATION || "India";
+const RESUME_FEED_PROJECTION = [
+  "skills",
+  "score",
+  "pipelineResult.resume_score",
+  "pipelineResult.competencies",
+  "pipelineResult.competency_gap",
+  "pipelineResult.match_summary",
+  "pipelineResult.highlights",
+  "pipelineResult.top_jobs",
+  "pipelineResult.search_keywords",
+  "pipelineResult.resume_skills",
+].join(" ");
 
 const uniqueValues = (values = []) => [...new Set(values.filter(Boolean))];
 
@@ -81,6 +93,23 @@ const getStoredPipelineJobs = (resume, resumeSkills) => {
   });
 };
 
+const getStoredAnalysis = (resume) => {
+  if (!resume?.pipelineResult) {
+    return null;
+  }
+
+  return {
+    resume_score: resume.pipelineResult.resume_score ?? resume.score ?? null,
+    competencies: resume.pipelineResult.competencies ?? {},
+    competency_gap: Array.isArray(resume.pipelineResult.competency_gap) ? resume.pipelineResult.competency_gap : [],
+    match_summary: resume.pipelineResult.match_summary ?? null,
+    highlights: Array.isArray(resume.pipelineResult.highlights) ? resume.pipelineResult.highlights : [],
+    top_jobs: Array.isArray(resume.pipelineResult.top_jobs) ? resume.pipelineResult.top_jobs : [],
+    search_keywords: Array.isArray(resume.pipelineResult.search_keywords) ? resume.pipelineResult.search_keywords : [],
+    resume_skills: Array.isArray(resume.pipelineResult.resume_skills) ? resume.pipelineResult.resume_skills : [],
+  };
+};
+
 // GET personalized jobs for a candidate based on the latest uploaded resume
 router.get("/:userId", protect, async (req, res) => {
   try {
@@ -90,7 +119,7 @@ router.get("/:userId", protect, async (req, res) => {
       return res.status(403).json({ message: "You can only view your own job feed" });
     }
 
-    const latestResume = await Resume.findOne({ userId }).sort({ createdAt: -1 });
+    const latestResume = await Resume.findOne({ userId }).select(RESUME_FEED_PROJECTION).sort({ createdAt: -1 }).lean();
     if (!latestResume) {
       return res.status(200).json({
         userId,
@@ -116,7 +145,7 @@ router.get("/:userId", protect, async (req, res) => {
           { "pipelineResult.resume_skills.0": { $exists: true } },
           { "pipelineResult.search_keywords.0": { $exists: true } },
         ],
-      }).sort({ createdAt: -1 });
+      }).select(RESUME_FEED_PROJECTION).sort({ createdAt: -1 }).lean();
 
     if (!resume) {
       return res.status(200).json({
@@ -166,6 +195,7 @@ router.get("/:userId", protect, async (req, res) => {
       return res.status(200).json({
         userId,
         resumeId: resume._id,
+        analysis: getStoredAnalysis(resume),
         searchQueries,
         resumeSkills,
         totalActiveJobs: storedPipelineJobs.length,
@@ -209,6 +239,7 @@ router.get("/:userId", protect, async (req, res) => {
     res.status(200).json({
       userId,
       resumeId: resume._id,
+      analysis: getStoredAnalysis(resume),
       searchQueries,
       resumeSkills,
       totalActiveJobs: jobs.length,
