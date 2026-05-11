@@ -34,9 +34,6 @@ export const uploadResume = async (req, res) => {
     const candidate = await User.findById(req.user.id).select("name email").lean();
     let pipelineResult = null;
     let pipelineError = null;
-    let emailStatus = "not_attempted";
-    let emailResult = null;
-
     try {
       pipelineResult = await runResumePipeline(filePath, rawText);
 
@@ -61,31 +58,39 @@ export const uploadResume = async (req, res) => {
       resume.skills = pipelineResult.resume_skills ?? [];
       resume.pipelineResult = pipelineResult;
       await resume.save();
-
-      try {
-        emailResult = await sendTopJobMatchesEmail({
-          to: candidate?.email,
-          candidateName: candidate?.name,
-          jobs: pipelineResult.top_jobs || [],
-          resumeScore: pipelineResult.resume_score ?? null,
-        });
-        emailStatus = emailResult?.skipped ? "skipped" : "sent";
-      } catch (emailError) {
-        emailStatus = "failed";
-        emailResult = {
-          error: emailError.message,
-        };
-        console.error(`Top-match email failed for ${candidate?.email || "unknown user"}:`, emailError.message);
-      }
     }
 
     res.status(201).json({
-      resume,
+      resume: {
+        _id: resume._id,
+        userId: resume.userId,
+        fileUrl: resume.fileUrl,
+        version: resume.version,
+        score: resume.score ?? null,
+        skills: Array.isArray(resume.skills) ? resume.skills : [],
+        createdAt: resume.createdAt,
+        updatedAt: resume.updatedAt,
+      },
       pipelineResult,
       pipelineError,
-      emailStatus,
-      emailResult
+      emailStatus: pipelineResult ? "queued" : "not_attempted",
     });
+
+    if (pipelineResult) {
+      sendTopJobMatchesEmail({
+        to: candidate?.email,
+        candidateName: candidate?.name,
+        jobs: pipelineResult.top_jobs || [],
+        resumeScore: pipelineResult.resume_score ?? null,
+      })
+        .then((emailResult) => {
+          const status = emailResult?.skipped ? "skipped" : "sent";
+          console.log(`Top-match email ${status} for ${candidate?.email || "unknown user"}`, emailResult);
+        })
+        .catch((emailError) => {
+          console.error(`Top-match email failed for ${candidate?.email || "unknown user"}:`, emailError.message);
+        });
+    }
 
   } catch (err) {
     console.error(err);
