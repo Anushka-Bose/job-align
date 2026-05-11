@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { startTransition, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { uploadResume } from "../api/resume";
 import { writeLatestAnalysis } from "../utils/analysisStorage";
@@ -51,17 +51,18 @@ export default function ResumeUpload() {
         writeLatestAnalysis(data.pipelineResult);
       }
 
-      if (data?.pipelineError) {
-        setStatus(`Resume uploaded, but analysis failed: ${data.pipelineError}`);
-      } else {
-        setStatus("Resume uploaded and matched against live jobs.");
-      }
-
-      navigate("/jobs", {
-        state: {
-          uploadedAnalysis: data?.pipelineResult || null,
-        },
+      startTransition(() => {
+        navigate("/jobs", {
+          replace: true,
+          state: {
+            uploadedAnalysis: data?.pipelineResult || null,
+            uploadStatus: data?.pipelineError
+              ? `Resume uploaded, but analysis failed: ${data.pipelineError}`
+              : "Resume uploaded and matched against live jobs.",
+          },
+        });
       });
+      return;
     } catch (err) {
       setStatus(err.message || "Upload failed");
     } finally {
