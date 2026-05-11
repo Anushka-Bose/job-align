@@ -1,4 +1,6 @@
-import { Link } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { readLatestAnalysis, writeLatestAnalysis } from "../utils/analysisStorage";
 
 const scoreCategories = [
   { key: "Impact", label: "Impact", color: "accent-teal-300" },
@@ -9,14 +11,6 @@ const scoreCategories = [
   { key: "Analytical Thinking", label: "Analytical thinking", color: "accent-emerald-300" },
 ];
 
-const readLatestAnalysis = () => {
-  try {
-    return JSON.parse(localStorage.getItem("latestJobAnalysis") || "null");
-  } catch {
-    return null;
-  }
-};
-
 const clampScore = (value, fallback = 0) => {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
@@ -25,7 +19,15 @@ const clampScore = (value, fallback = 0) => {
 };
 
 export default function ResumeScore() {
-  const analysis = readLatestAnalysis();
+  const location = useLocation();
+  const analysis = location.state?.uploadedAnalysis || readLatestAnalysis();
+
+  useEffect(() => {
+    if (location.state?.uploadedAnalysis) {
+      writeLatestAnalysis(location.state.uploadedAnalysis);
+    }
+  }, [location.state]);
+
   const scores = analysis?.competencies || {};
   const overallScore = clampScore(analysis?.resume_score, 0);
   const matchSummary = analysis?.match_summary || null;
@@ -93,6 +95,7 @@ export default function ResumeScore() {
           </Link>
           <Link
             to="/resume-highlights"
+            state={{ uploadedAnalysis: analysis }}
             className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 font-semibold text-white transition hover:border-teal-300/40 hover:bg-white/[0.08]"
           >
             View highlights

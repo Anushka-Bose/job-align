@@ -4,6 +4,7 @@ import JobCard from "../components/JobCard";
 import { getCandidateJobFeed } from "../api/feed";
 import { getRecruiterLeaderboard, runRecruiterScamCheck } from "../api/recruiter";
 import { getNotifications, markNotificationRead } from "../api/notifications";
+import { readLatestAnalysis, writeLatestAnalysis } from "../utils/analysisStorage";
 
 const fallbackJobs = [
   {
@@ -45,16 +46,8 @@ const parseStoredUser = () => {
   }
 };
 
-const readLatestAnalysis = () => {
-  try {
-    return JSON.parse(localStorage.getItem("latestJobAnalysis") || "null");
-  } catch {
-    return null;
-  }
-};
-
 export default function Jobs() {
-  const locationState = useLocation();
+  const location = useLocation();
   const [candidateFeed, setCandidateFeed] = useState(null);
   const [recruiterFeed, setRecruiterFeed] = useState(null);
   const [scamChecks, setScamChecks] = useState({});
@@ -66,8 +59,8 @@ export default function Jobs() {
   const user = useMemo(parseStoredUser, []);
   const token = localStorage.getItem("token");
   const isRecruiter = user?.role === "recruiter";
-  const latestAnalysis = useMemo(readLatestAnalysis, []);
-  const uploadedAnalysis = locationState.state?.uploadedAnalysis || null;
+  const uploadedAnalysis = location.state?.uploadedAnalysis || null;
+  const latestAnalysis = useMemo(() => uploadedAnalysis || readLatestAnalysis(), [uploadedAnalysis]);
   const candidateAnalysis = uploadedAnalysis || latestAnalysis || null;
   const needsResumeUpload = !isRecruiter && Boolean(candidateFeed?.needsResumeUpload);
   const emptyStateTitle = candidateFeed?.emptyState?.title || "Upload your resume to see jobs";
@@ -219,6 +212,12 @@ export default function Jobs() {
     || "Not available";
   const experienceSummary = candidateAnalysis?.match_summary?.message || "Resume analysis is available.";
   const leaderboard = recruiterFeed?.candidates || [];
+
+  useEffect(() => {
+    if (uploadedAnalysis) {
+      writeLatestAnalysis(uploadedAnalysis);
+    }
+  }, [uploadedAnalysis]);
 
   const handleNotificationOpen = async (notification) => {
     try {
@@ -546,12 +545,14 @@ export default function Jobs() {
                 </div>
                 <Link
                   to="/resume-score"
+                  state={{ uploadedAnalysis: candidateAnalysis }}
                   className="inline-flex items-center justify-center rounded-full bg-teal-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
                 >
                   View Resume Analysis
                 </Link>
                 <Link
                   to="/resume-highlights"
+                  state={{ uploadedAnalysis: candidateAnalysis }}
                   className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-5 py-3 font-semibold text-white transition hover:border-teal-300/40 hover:bg-white/[0.08]"
                 >
                   View Highlights

@@ -1,12 +1,6 @@
-import { Link } from "react-router-dom";
-
-const readLatestAnalysis = () => {
-  try {
-    return JSON.parse(localStorage.getItem("latestJobAnalysis") || "null");
-  } catch {
-    return null;
-  }
-};
+import { useEffect } from "react";
+import { Link, useLocation } from "react-router-dom";
+import { readLatestAnalysis, writeLatestAnalysis } from "../utils/analysisStorage";
 
 const formatSignalScore = (value) => {
   const number = Number(value);
@@ -47,7 +41,15 @@ const typeLabels = {
 };
 
 export default function ResumeHighlights() {
-  const analysis = readLatestAnalysis();
+  const location = useLocation();
+  const analysis = location.state?.uploadedAnalysis || readLatestAnalysis();
+
+  useEffect(() => {
+    if (location.state?.uploadedAnalysis) {
+      writeLatestAnalysis(location.state.uploadedAnalysis);
+    }
+  }, [location.state]);
+
   const highlights = Array.isArray(analysis?.highlights) ? analysis.highlights : [];
   const groupedHighlights = highlights.reduce((accumulator, item) => {
     const key = item?.type || "general";
@@ -116,6 +118,7 @@ export default function ResumeHighlights() {
           <div className="flex flex-wrap gap-3">
             <Link
               to="/resume-score"
+              state={{ uploadedAnalysis: analysis }}
               className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 font-semibold text-white transition hover:border-teal-300/40 hover:bg-white/[0.08]"
             >
               View Resume Score

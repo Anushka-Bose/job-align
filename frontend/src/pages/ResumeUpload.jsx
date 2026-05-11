@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { uploadResume } from "../api/resume";
+import { writeLatestAnalysis } from "../utils/analysisStorage";
 
 export default function ResumeUpload() {
   const navigate = useNavigate();
@@ -47,7 +48,7 @@ export default function ResumeUpload() {
       });
 
       if (data?.pipelineResult) {
-        localStorage.setItem("latestJobAnalysis", JSON.stringify(data.pipelineResult));
+        writeLatestAnalysis(data.pipelineResult);
       }
 
       if (data?.pipelineError) {
