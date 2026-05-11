@@ -48,20 +48,21 @@ const parseStoredUser = () => {
 
 export default function Jobs() {
   const location = useLocation();
-  const [candidateFeed, setCandidateFeed] = useState(null);
-  const [recruiterFeed, setRecruiterFeed] = useState(null);
-  const [scamChecks, setScamChecks] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [checkingCandidateId, setCheckingCandidateId] = useState("");
-  const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
-
   const user = useMemo(parseStoredUser, []);
   const token = localStorage.getItem("token");
   const isRecruiter = user?.role === "recruiter";
   const uploadedAnalysis = location.state?.uploadedAnalysis || null;
   const latestAnalysis = useMemo(() => uploadedAnalysis || readLatestAnalysis(), [uploadedAnalysis]);
   const candidateAnalysis = uploadedAnalysis || latestAnalysis || null;
+  const shouldBlockOnDashboardLoad = isRecruiter || !candidateAnalysis;
+
+  const [candidateFeed, setCandidateFeed] = useState(null);
+  const [recruiterFeed, setRecruiterFeed] = useState(null);
+  const [scamChecks, setScamChecks] = useState({});
+  const [loading, setLoading] = useState(shouldBlockOnDashboardLoad);
+  const [error, setError] = useState("");
+  const [checkingCandidateId, setCheckingCandidateId] = useState("");
+  const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
   const needsResumeUpload = !isRecruiter && Boolean(candidateFeed?.needsResumeUpload);
   const emptyStateTitle = candidateFeed?.emptyState?.title || "Upload your resume to see jobs";
   const emptyStateMessage = candidateFeed?.emptyState?.message
@@ -77,7 +78,7 @@ export default function Jobs() {
         return;
       }
 
-      setLoading(true);
+      setLoading(shouldBlockOnDashboardLoad);
       setError("");
 
       try {
@@ -95,16 +96,6 @@ export default function Jobs() {
         });
         if (!ignore) {
           setCandidateFeed(data);
-          try {
-            const notifications = await getNotifications({ token });
-            if (!ignore) {
-              setNotificationFeed(notifications);
-            }
-          } catch {
-            if (!ignore) {
-              setNotificationFeed({ unreadCount: 0, notifications: [] });
-            }
-          }
         }
       } catch (err) {
         if (!ignore) {
@@ -118,6 +109,34 @@ export default function Jobs() {
     };
 
     load();
+    return () => {
+      ignore = true;
+    };
+  }, [isRecruiter, shouldBlockOnDashboardLoad, token, user?.id]);
+
+  useEffect(() => {
+    let ignore = false;
+
+    if (isRecruiter || !token || !user?.id) {
+      return () => {
+        ignore = true;
+      };
+    }
+
+    const loadNotifications = async () => {
+      try {
+        const notifications = await getNotifications({ token });
+        if (!ignore) {
+          setNotificationFeed(notifications);
+        }
+      } catch {
+        if (!ignore) {
+          setNotificationFeed({ unreadCount: 0, notifications: [] });
+        }
+      }
+    };
+
+    loadNotifications();
     return () => {
       ignore = true;
     };
