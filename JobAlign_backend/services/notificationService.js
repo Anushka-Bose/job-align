@@ -13,6 +13,60 @@ const getResumeSkills = (resume) => uniqueValues([
   ...(Array.isArray(resume?.pipelineResult?.resume_skills) ? resume.pipelineResult.resume_skills : []),
 ]);
 
+const getJobSkills = (job) =>
+  uniqueValues([
+    ...(Array.isArray(job?.skillsRequired) ? job.skillsRequired : []),
+    ...(Array.isArray(job?.skills) ? job.skills : []),
+  ]);
+
+const buildNotificationPayload = ({ resume, job, matchScore, matchedSkills }) => ({
+  userId: resume.userId,
+  resumeId: resume._id,
+  jobId: String(job.id || job.jobId || `${job.company || "company"}-${job.title || "job"}`),
+  title: job.title || "Matched role",
+  company: job.company || "Recommended company",
+  location: job.location || "",
+  type: job.type || "",
+  redirectUrl: job.redirectUrl || job.redirect_url || "",
+  message: `New ${job.title || "matched"} role at ${job.company || "a company"} matches your uploaded resume.`,
+  matchScore,
+  matchedSkills,
+  isRead: false,
+});
+
+const upsertNotification = async (payload) => {
+  const existing = await Notification.findOne({
+    userId: payload.userId,
+    jobId: payload.jobId,
+  })
+    .select("_id")
+    .lean();
+
+  if (existing) {
+    await Notification.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          resumeId: payload.resumeId,
+          title: payload.title,
+          company: payload.company,
+          location: payload.location,
+          type: payload.type,
+          redirectUrl: payload.redirectUrl,
+          message: payload.message,
+          matchScore: payload.matchScore,
+          matchedSkills: payload.matchedSkills,
+          isRead: false,
+        },
+      },
+    );
+    return { created: false };
+  }
+
+  await Notification.create(payload);
+  return { created: true };
+};
+
 const getLatestCandidateResumes = async () => {
   const candidates = await User.find({ role: "candidate" })
     .select("_id")
@@ -78,32 +132,28 @@ export const createNotificationsForNewJobs = async (jobs = []) => {
       }
 
       try {
-        await Notification.create({
-          userId: resume.userId,
-          resumeId: resume._id,
-          jobId: String(job.id),
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          type: job.type,
-          redirectUrl: job.redirectUrl || "",
-          message: `New ${job.title} role at ${job.company} matches your uploaded resume.`,
+        const payload = buildNotificationPayload({
+          resume,
+          job,
           matchScore,
           matchedSkills: explanation.matchedSkills,
         });
+        const result = await upsertNotification(payload);
         const candidate = usersById.get(String(resume.userId));
-        try {
-          await sendJobMatchEmail({
-            to: candidate?.email,
-            candidateName: candidate?.name,
-            job,
-            matchScore,
-            matchedSkills: explanation.matchedSkills,
-          });
-        } catch (emailError) {
-          console.error(`Email notification failed for ${candidate?.email || "unknown user"}:`, emailError.message);
+        if (result.created) {
+          try {
+            await sendJobMatchEmail({
+              to: candidate?.email,
+              candidateName: candidate?.name,
+              job,
+              matchScore,
+              matchedSkills: explanation.matchedSkills,
+            });
+          } catch (emailError) {
+            console.error(`Email notification failed for ${candidate?.email || "unknown user"}:`, emailError.message);
+          }
+          created += 1;
         }
-        created += 1;
       } catch (error) {
         if (error?.code !== 11000) {
           throw error;
@@ -113,4 +163,41 @@ export const createNotificationsForNewJobs = async (jobs = []) => {
   }
 
   return { created };
+};
+
+export const createNotificationsForResumeMatches = async ({ resume, jobs = [] }) => {
+  if (!resume?._id || !resume?.userId || !Array.isArray(jobs) || !jobs.length) {
+    return { stored: 0 };
+  }
+
+  const resumeSkills = getResumeSkills(resume);
+  if (!resumeSkills.length) {
+    return { stored: 0 };
+  }
+
+  let stored = 0;
+
+  for (const job of jobs) {
+    const jobSkills = getJobSkills(job);
+    const matchScore = typeof job?.score === "number"
+      ? (job.score <= 1 ? Math.round(job.score * 100) : Math.round(job.score))
+      : calculateSmartMatchScore(resumeSkills, jobSkills);
+    const explanation = getSmartExplanation(resumeSkills, jobSkills);
+
+    if (matchScore < MIN_NOTIFICATION_MATCH_SCORE && !explanation.matchedSkills.length) {
+      continue;
+    }
+
+    const payload = buildNotificationPayload({
+      resume,
+      job,
+      matchScore,
+      matchedSkills: explanation.matchedSkills,
+    });
+
+    await upsertNotification(payload);
+    stored += 1;
+  }
+
+  return { stored };
 };

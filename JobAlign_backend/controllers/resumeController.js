@@ -4,6 +4,7 @@ import fs from "fs";
 import { createRequire } from "module";
 import { runResumePipeline } from "../services/pipelineService.js";
 import { sendTopJobMatchesEmail } from "../services/emailService.js";
+import { createNotificationsForResumeMatches } from "../services/notificationService.js";
 
 const require = createRequire(import.meta.url);
 const pdf = require("pdf-parse");
@@ -58,6 +59,10 @@ export const uploadResume = async (req, res) => {
       resume.skills = pipelineResult.resume_skills ?? [];
       resume.pipelineResult = pipelineResult;
       await resume.save();
+      await createNotificationsForResumeMatches({
+        resume,
+        jobs: pipelineResult.top_jobs || [],
+      });
     }
 
     res.status(201).json({
