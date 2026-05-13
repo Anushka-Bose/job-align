@@ -281,3 +281,63 @@ export const deliverNotificationEmails = async ({ userId = null, resumeId = null
     pending: Math.max(0, pendingNotifications.length - sent),
   };
 };
+
+export const markNotificationEmailsDelivered = async ({ userId = null, resumeId = null }) => {
+  const query = {};
+
+  if (userId) {
+    query.userId = userId;
+  }
+
+  if (resumeId) {
+    query.resumeId = resumeId;
+  }
+
+  if (!Object.keys(query).length) {
+    return { updated: 0 };
+  }
+
+  const result = await Notification.updateMany(
+    query,
+    {
+      $set: {
+        emailSentAt: new Date(),
+        lastEmailError: "",
+      },
+    },
+  );
+
+  return {
+    updated: result.modifiedCount ?? 0,
+  };
+};
+
+export const recordNotificationEmailFailure = async ({ userId = null, resumeId = null, message = "email_send_failed" }) => {
+  const query = {};
+
+  if (userId) {
+    query.userId = userId;
+  }
+
+  if (resumeId) {
+    query.resumeId = resumeId;
+  }
+
+  if (!Object.keys(query).length) {
+    return { updated: 0 };
+  }
+
+  const result = await Notification.updateMany(
+    query,
+    {
+      $inc: { emailAttempts: 1 },
+      $set: {
+        lastEmailError: message,
+      },
+    },
+  );
+
+  return {
+    updated: result.modifiedCount ?? 0,
+  };
+};
