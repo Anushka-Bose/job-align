@@ -156,27 +156,21 @@ export const createNotificationsForResumeMatches = async ({ resume, jobs = [] })
   }
 
   const resumeSkills = getResumeSkills(resume);
-  if (!resumeSkills.length) {
-    return { stored: 0 };
-  }
-
   let stored = 0;
 
   for (const job of jobs) {
     const jobSkills = getJobSkills(job);
-    const matchScore = typeof job?.score === "number"
+    const normalizedJobScore = typeof job?.score === "number"
       ? (job.score <= 1 ? Math.round(job.score * 100) : Math.round(job.score))
       : calculateSmartMatchScore(resumeSkills, jobSkills);
-    const explanation = getSmartExplanation(resumeSkills, jobSkills);
-
-    if (matchScore < MIN_NOTIFICATION_MATCH_SCORE && !explanation.matchedSkills.length) {
-      continue;
-    }
+    const explanation = resumeSkills.length
+      ? getSmartExplanation(resumeSkills, jobSkills)
+      : { matchedSkills: [] };
 
     const payload = buildNotificationPayload({
       resume,
       job,
-      matchScore,
+      matchScore: normalizedJobScore,
       matchedSkills: explanation.matchedSkills,
     });
 

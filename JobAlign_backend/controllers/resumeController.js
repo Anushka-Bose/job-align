@@ -39,6 +39,8 @@ export const uploadResume = async (req, res) => {
     const candidate = await User.findById(req.user.id).select("name email").lean();
     let pipelineResult = null;
     let pipelineError = null;
+    let emailStatus = "not_attempted";
+    let emailError = null;
     try {
       pipelineResult = await runResumePipeline(filePath, rawText);
 
@@ -65,8 +67,41 @@ export const uploadResume = async (req, res) => {
       await resume.save();
       await createNotificationsForResumeMatches({
         resume,
-        jobs: pipelineResult.top_jobs || [],
+        jobs: (pipelineResult.top_jobs || []).slice(0, 5),
       });
+
+      try {
+        const emailResult = await sendTopJobMatchesEmail({
+          to: candidate?.email,
+          candidateName: candidate?.name,
+          jobs: (pipelineResult.top_jobs || []).slice(0, 5),
+          resumeScore: pipelineResult.resume_score ?? null,
+        });
+
+        if (emailResult?.skipped) {
+          emailStatus = "skipped";
+          emailError = emailResult.reason || "email_skipped";
+          await recordNotificationEmailFailure({
+            userId: resume.userId,
+            resumeId: resume._id,
+            message: emailError,
+          });
+        } else {
+          emailStatus = "sent";
+          await markNotificationEmailsDelivered({
+            userId: resume.userId,
+            resumeId: resume._id,
+          });
+        }
+      } catch (error) {
+        emailStatus = "failed";
+        emailError = error.message;
+        await recordNotificationEmailFailure({
+          userId: resume.userId,
+          resumeId: resume._id,
+          message: error.message,
+        });
+      }
     }
 
     res.status(201).json({
@@ -82,43 +117,9 @@ export const uploadResume = async (req, res) => {
       },
       pipelineResult,
       pipelineError,
-      emailStatus: pipelineResult ? "queued" : "not_attempted",
+      emailStatus,
+      emailError,
     });
-
-    if (pipelineResult) {
-      sendTopJobMatchesEmail({
-        to: candidate?.email,
-        candidateName: candidate?.name,
-        jobs: pipelineResult.top_jobs || [],
-        resumeScore: pipelineResult.resume_score ?? null,
-      })
-        .then(async (emailResult) => {
-          const status = emailResult?.skipped ? "skipped" : "sent";
-          console.log(`Top-match email ${status} for ${candidate?.email || "unknown user"}`, emailResult);
-
-          if (emailResult?.skipped) {
-            await recordNotificationEmailFailure({
-              userId: resume.userId,
-              resumeId: resume._id,
-              message: emailResult.reason || "email_skipped",
-            });
-            return;
-          }
-
-          await markNotificationEmailsDelivered({
-            userId: resume.userId,
-            resumeId: resume._id,
-          });
-        })
-        .catch(async (emailError) => {
-          console.error(`Top-match email failed for ${candidate?.email || "unknown user"}:`, emailError.message);
-          await recordNotificationEmailFailure({
-            userId: resume.userId,
-            resumeId: resume._id,
-            message: emailError.message,
-          });
-        });
-    }
 
   } catch (err) {
     console.error(err);
