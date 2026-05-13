@@ -32,6 +32,8 @@ const buildNotificationPayload = ({ resume, job, matchScore, matchedSkills }) =>
   matchScore,
   matchedSkills,
   isRead: false,
+  emailSentAt: null,
+  lastEmailError: "",
 });
 
 const upsertNotification = async (payload) => {
@@ -57,6 +59,8 @@ const upsertNotification = async (payload) => {
           matchScore: payload.matchScore,
           matchedSkills: payload.matchedSkills,
           isRead: false,
+          emailSentAt: null,
+          lastEmailError: "",
         },
       },
     );
@@ -104,13 +108,6 @@ export const createNotificationsForNewJobs = async (jobs = []) => {
     return { created: 0 };
   }
 
-  const users = await User.find({
-    _id: { $in: latestResumes.map((resume) => resume.userId) },
-  })
-    .select("_id name email")
-    .lean();
-  const usersById = new Map(users.map((user) => [String(user._id), user]));
-
   let created = 0;
 
   for (const job of jobs) {
@@ -139,19 +136,7 @@ export const createNotificationsForNewJobs = async (jobs = []) => {
           matchedSkills: explanation.matchedSkills,
         });
         const result = await upsertNotification(payload);
-        const candidate = usersById.get(String(resume.userId));
         if (result.created) {
-          try {
-            await sendJobMatchEmail({
-              to: candidate?.email,
-              candidateName: candidate?.name,
-              job,
-              matchScore,
-              matchedSkills: explanation.matchedSkills,
-            });
-          } catch (emailError) {
-            console.error(`Email notification failed for ${candidate?.email || "unknown user"}:`, emailError.message);
-          }
           created += 1;
         }
       } catch (error) {
@@ -200,4 +185,99 @@ export const createNotificationsForResumeMatches = async ({ resume, jobs = [] })
   }
 
   return { stored };
+};
+
+export const deliverNotificationEmails = async ({ userId = null, resumeId = null, limit = 50 } = {}) => {
+  const query = {
+    emailSentAt: null,
+  };
+
+  if (userId) {
+    query.userId = userId;
+  }
+
+  if (resumeId) {
+    query.resumeId = resumeId;
+  }
+
+  const pendingNotifications = await Notification.find(query)
+    .sort({ createdAt: 1 })
+    .limit(limit)
+    .lean();
+
+  if (!pendingNotifications.length) {
+    return { sent: 0, failed: 0, pending: 0 };
+  }
+
+  const users = await User.find({
+    _id: { $in: uniqueValues(pendingNotifications.map((item) => String(item.userId))) },
+  })
+    .select("_id name email")
+    .lean();
+  const usersById = new Map(users.map((user) => [String(user._id), user]));
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const notification of pendingNotifications) {
+    const candidate = usersById.get(String(notification.userId));
+
+    try {
+      const result = await sendJobMatchEmail({
+        to: candidate?.email,
+        candidateName: candidate?.name,
+        job: {
+          title: notification.title,
+          company: notification.company,
+          location: notification.location,
+          redirectUrl: notification.redirectUrl,
+        },
+        matchScore: notification.matchScore,
+        matchedSkills: notification.matchedSkills || [],
+      });
+
+      if (result?.skipped) {
+        failed += 1;
+        await Notification.updateOne(
+          { _id: notification._id },
+          {
+            $inc: { emailAttempts: 1 },
+            $set: {
+              lastEmailError: result.reason || "email_skipped",
+            },
+          },
+        );
+        continue;
+      }
+
+      sent += 1;
+      await Notification.updateOne(
+        { _id: notification._id },
+        {
+          $inc: { emailAttempts: 1 },
+          $set: {
+            emailSentAt: new Date(),
+            lastEmailError: "",
+          },
+        },
+      );
+    } catch (error) {
+      failed += 1;
+      await Notification.updateOne(
+        { _id: notification._id },
+        {
+          $inc: { emailAttempts: 1 },
+          $set: {
+            lastEmailError: error?.message || "email_send_failed",
+          },
+        },
+      );
+    }
+  }
+
+  return {
+    sent,
+    failed,
+    pending: Math.max(0, pendingNotifications.length - sent),
+  };
 };

@@ -1,7 +1,7 @@
 import axios from "axios";
 import Job from "../models/jobModel.js";
 import Resume from "../models/resumeModel.js";
-import { createNotificationsForNewJobs } from "./notificationService.js";
+import { createNotificationsForNewJobs, deliverNotificationEmails } from "./notificationService.js";
 
 const API_URL = "https://remotive.com/api/remote-jobs";
 const DEFAULT_SEARCH_TERMS = [
@@ -263,8 +263,10 @@ const fetchJobs = async () => {
     }
 
     const notificationResult = await createNotificationsForNewJobs(newlyInsertedJobs);
+    const deliveryResult = await deliverNotificationEmails({ limit: 100 });
     console.log("Jobs updated");
     console.log(`Notifications created: ${notificationResult.created}`);
+    console.log(`Notification emails sent: ${deliveryResult.sent}, failed: ${deliveryResult.failed}`);
   } catch (err) {
     console.error(err.message);
   }

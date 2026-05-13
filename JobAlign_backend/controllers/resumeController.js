@@ -1,10 +1,8 @@
 import Resume from "../models/resumeModel.js";
-import User from "../models/userModel.js";
 import fs from "fs";
 import { createRequire } from "module";
 import { runResumePipeline } from "../services/pipelineService.js";
-import { sendTopJobMatchesEmail } from "../services/emailService.js";
-import { createNotificationsForResumeMatches } from "../services/notificationService.js";
+import { createNotificationsForResumeMatches, deliverNotificationEmails } from "../services/notificationService.js";
 
 const require = createRequire(import.meta.url);
 const pdf = require("pdf-parse");
@@ -32,7 +30,6 @@ export const uploadResume = async (req, res) => {
       rawText,
       version: count + 1
     });
-    const candidate = await User.findById(req.user.id).select("name email").lean();
     let pipelineResult = null;
     let pipelineError = null;
     try {
@@ -82,18 +79,16 @@ export const uploadResume = async (req, res) => {
     });
 
     if (pipelineResult) {
-      sendTopJobMatchesEmail({
-        to: candidate?.email,
-        candidateName: candidate?.name,
-        jobs: pipelineResult.top_jobs || [],
-        resumeScore: pipelineResult.resume_score ?? null,
+      deliverNotificationEmails({
+        userId: resume.userId,
+        resumeId: resume._id,
+        limit: 20,
       })
-        .then((emailResult) => {
-          const status = emailResult?.skipped ? "skipped" : "sent";
-          console.log(`Top-match email ${status} for ${candidate?.email || "unknown user"}`, emailResult);
+        .then((deliveryResult) => {
+          console.log(`Notification emails processed for resume ${resume._id}`, deliveryResult);
         })
-        .catch((emailError) => {
-          console.error(`Top-match email failed for ${candidate?.email || "unknown user"}:`, emailError.message);
+        .catch((deliveryError) => {
+          console.error(`Notification email processing failed for resume ${resume._id}:`, deliveryError.message);
         });
     }
 

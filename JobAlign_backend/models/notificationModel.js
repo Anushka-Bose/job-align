@@ -53,6 +53,19 @@ const notificationSchema = new mongoose.Schema({
     default: false,
     index: true,
   },
+  emailSentAt: {
+    type: Date,
+    default: null,
+    index: true,
+  },
+  emailAttempts: {
+    type: Number,
+    default: 0,
+  },
+  lastEmailError: {
+    type: String,
+    default: "",
+  },
 }, { timestamps: true });
 
 notificationSchema.index({ userId: 1, jobId: 1 }, { unique: true });
