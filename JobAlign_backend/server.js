@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import app from './app.js';
 import cron from "node-cron";
 import { fetchJobs } from "./services/jobService.js";
+import { getEmailConfigStatus, verifyEmailTransport } from "./services/emailService.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -16,6 +17,18 @@ const JOB_FETCH_CRON = process.env.JOB_FETCH_CRON || "0 * * * *";
 const DB = process.env.MONGO_DB_URL;
 mongoose.connect(DB).then(()=>{
     console.log('DB connection successful');
+    verifyEmailTransport()
+      .then((result) => {
+        if (result.ok) {
+          console.log("Email transport verified successfully.");
+        } else {
+          console.warn("Email transport is not configured.", result.configStatus);
+        }
+      })
+      .catch((error) => {
+        console.error("Email transport verification failed:", error?.message || error);
+        console.error("Current email config flags:", getEmailConfigStatus());
+      });
     fetchJobs().catch((error) => {
       console.error("Initial job fetch failed:", error?.message || error);
     });

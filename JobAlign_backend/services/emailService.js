@@ -1,12 +1,13 @@
 import nodemailer from "nodemailer";
 
+const getSenderAddress = () => process.env.EMAIL_FROM || process.env.SMTP_USER || "";
+
 const isMailEnabled = () =>
   Boolean(
     process.env.SMTP_HOST &&
     process.env.SMTP_PORT &&
     process.env.SMTP_USER &&
-    process.env.SMTP_PASS &&
-    process.env.EMAIL_FROM,
+    process.env.SMTP_PASS,
   );
 
 const getMailConfigStatus = () => ({
@@ -14,7 +15,8 @@ const getMailConfigStatus = () => ({
   smtpPort: Boolean(process.env.SMTP_PORT),
   smtpUser: Boolean(process.env.SMTP_USER),
   smtpPass: Boolean(process.env.SMTP_PASS),
-  emailFrom: Boolean(process.env.EMAIL_FROM),
+  emailFrom: Boolean(getSenderAddress()),
+  explicitEmailFrom: Boolean(process.env.EMAIL_FROM),
 });
 
 let transporter = null;
@@ -55,7 +57,7 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
     : "New Job Alerts!!!!";
 
   const info = await mailer.sendMail({
-    from: process.env.EMAIL_FROM,
+    from: getSenderAddress(),
     to,
     subject: `New matching job: ${job.title} at ${job.company}`,
     text: [
@@ -100,6 +102,24 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
 };
 
 export const isEmailConfigured = () => isMailEnabled();
+export const getEmailConfigStatus = () => getMailConfigStatus();
+
+export const verifyEmailTransport = async () => {
+  const mailer = getTransporter();
+  if (!mailer) {
+    return {
+      ok: false,
+      reason: "mailer_not_configured",
+      configStatus: getMailConfigStatus(),
+    };
+  }
+
+  await mailer.verify();
+  return {
+    ok: true,
+    configStatus: getMailConfigStatus(),
+  };
+};
 
 export const sendTopJobMatchesEmail = async ({
   to,
@@ -162,7 +182,7 @@ export const sendTopJobMatchesEmail = async ({
   `).join("");
 
   const info = await mailer.sendMail({
-    from: process.env.EMAIL_FROM,
+    from: getSenderAddress(),
     to,
     subject: "Your top matched jobs from Job Align",
     text: [
