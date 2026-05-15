@@ -3,7 +3,7 @@ import User from "../models/userModel.js";
 import fs from "fs";
 import { createRequire } from "module";
 import { runResumePipeline } from "../services/pipelineService.js";
-import { sendTopJobMatchesEmail } from "../services/emailService.js";
+import { sendResumeTopJobsEmail } from "../services/emailService.js";
 import {
   createNotificationsForResumeMatches,
   markNotificationEmailsDelivered,
@@ -71,11 +71,13 @@ export const uploadResume = async (req, res) => {
       });
 
       try {
-        const emailResult = await sendTopJobMatchesEmail({
-          to: candidate?.email,
-          candidateName: candidate?.name,
-          jobs: (pipelineResult.top_jobs || []).slice(0, 5),
-          resumeScore: pipelineResult.resume_score ?? null,
+        if (!candidate?.email) {
+          throw new Error("Candidate email was not found in users schema.");
+        }
+
+        const emailResult = await sendResumeTopJobsEmail({
+          user: candidate,
+          resume,
         });
 
         if (emailResult?.skipped) {

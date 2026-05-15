@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 
 const getSenderAddress = () => process.env.EMAIL_FROM || process.env.SMTP_USER || "";
+const MAX_TOP_JOB_EMAIL_COUNT = 5;
 
 const isMailEnabled = () =>
   Boolean(
@@ -40,6 +41,24 @@ const getTransporter = () => {
 
   return transporter;
 };
+
+const normalizeTopJobsForEmail = (jobs = []) =>
+  (Array.isArray(jobs) ? jobs : []).slice(0, MAX_TOP_JOB_EMAIL_COUNT).map((job) => {
+    const rawScore = typeof job?.score === "number"
+      ? job.score
+      : (typeof job?.similarity_score === "number" ? job.similarity_score : null);
+    const normalizedScore = typeof rawScore === "number"
+      ? (rawScore <= 1 ? Math.round(rawScore * 100) : Math.round(rawScore))
+      : null;
+
+    return {
+      title: job?.title || "Matched role",
+      company: job?.company || "Recommended company",
+      location: job?.location || "Remote / Unspecified",
+      score: normalizedScore,
+      url: job?.redirect_url || job?.redirectUrl || job?.url || job?.link || "",
+    };
+  });
 
 export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, matchedSkills = [] }) => {
   const mailer = getTransporter();
@@ -148,22 +167,7 @@ export const sendTopJobMatchesEmail = async ({
     };
   }
 
-  const summarizedJobs = jobs.slice(0, 5).map((job) => {
-    const rawScore = typeof job?.score === "number"
-      ? job.score
-      : (typeof job?.similarity_score === "number" ? job.similarity_score : null);
-    const normalizedScore = typeof rawScore === "number"
-      ? (rawScore <= 1 ? Math.round(rawScore * 100) : Math.round(rawScore))
-      : null;
-
-    return {
-      title: job?.title || "Matched role",
-      company: job?.company || "Recommended company",
-      location: job?.location || "Remote / Unspecified",
-      score: normalizedScore,
-      url: job?.redirect_url || job?.redirectUrl || "",
-    };
-  });
+  const summarizedJobs = normalizeTopJobsForEmail(jobs);
 
   const textBlocks = summarizedJobs.map((job, index) => [
     `${index + 1}. ${job.title} at ${job.company}`,
@@ -218,4 +222,17 @@ export const sendTopJobMatchesEmail = async ({
   };
   console.log("Top job matches email result:", result);
   return result;
+};
+
+export const sendResumeTopJobsEmail = async ({ user = null, resume = null }) => {
+  const persistedTopJobs = Array.isArray(resume?.pipelineResult?.top_jobs)
+    ? resume.pipelineResult.top_jobs
+    : [];
+
+  return sendTopJobMatchesEmail({
+    to: user?.email || "",
+    candidateName: user?.name || "",
+    jobs: persistedTopJobs,
+    resumeScore: resume?.pipelineResult?.resume_score ?? resume?.score ?? null,
+  });
 };
