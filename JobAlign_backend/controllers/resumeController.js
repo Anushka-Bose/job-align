@@ -13,6 +13,47 @@ import {
 const require = createRequire(import.meta.url);
 const pdf = require("pdf-parse");
 
+const runResumeUploadSideEffects = ({ candidate, resume, pipelineResult }) => {
+  setImmediate(async () => {
+    try {
+      await createNotificationsForResumeMatches({
+        resume,
+        jobs: (pipelineResult.top_jobs || []).slice(0, 5),
+      });
+
+      if (!candidate?.email) {
+        throw new Error("Candidate email was not found in users schema.");
+      }
+
+      const emailResult = await sendResumeTopJobsEmail({
+        user: candidate,
+        resume,
+      });
+
+      if (emailResult?.skipped) {
+        await recordNotificationEmailFailure({
+          userId: resume.userId,
+          resumeId: resume._id,
+          message: emailResult.reason || "email_skipped",
+        });
+        return;
+      }
+
+      await markNotificationEmailsDelivered({
+        userId: resume.userId,
+        resumeId: resume._id,
+      });
+    } catch (error) {
+      console.error("Resume upload side effects failed:", error?.message || error);
+      await recordNotificationEmailFailure({
+        userId: resume.userId,
+        resumeId: resume._id,
+        message: error?.message || "side_effect_failed",
+      });
+    }
+  });
+};
+
 export const uploadResume = async (req, res) => {
   try {
     if (!req.file) {
@@ -65,45 +106,12 @@ export const uploadResume = async (req, res) => {
       resume.skills = pipelineResult.resume_skills ?? [];
       resume.pipelineResult = pipelineResult;
       await resume.save();
-      await createNotificationsForResumeMatches({
+      emailStatus = "queued";
+      runResumeUploadSideEffects({
+        candidate,
         resume,
-        jobs: (pipelineResult.top_jobs || []).slice(0, 5),
+        pipelineResult,
       });
-
-      try {
-        if (!candidate?.email) {
-          throw new Error("Candidate email was not found in users schema.");
-        }
-
-        const emailResult = await sendResumeTopJobsEmail({
-          user: candidate,
-          resume,
-        });
-
-        if (emailResult?.skipped) {
-          emailStatus = "skipped";
-          emailError = emailResult.reason || "email_skipped";
-          await recordNotificationEmailFailure({
-            userId: resume.userId,
-            resumeId: resume._id,
-            message: emailError,
-          });
-        } else {
-          emailStatus = "sent";
-          await markNotificationEmailsDelivered({
-            userId: resume.userId,
-            resumeId: resume._id,
-          });
-        }
-      } catch (error) {
-        emailStatus = "failed";
-        emailError = error.message;
-        await recordNotificationEmailFailure({
-          userId: resume.userId,
-          resumeId: resume._id,
-          message: error.message,
-        });
-      }
     }
 
     res.status(201).json({

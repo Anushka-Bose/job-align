@@ -361,7 +361,7 @@ export default function Jobs() {
         </section>
       ) : null}
 
-      {!isRecruiter && source === "upload" && uploadEmailStatus && uploadEmailStatus !== "sent" ? (
+      {!isRecruiter && source === "upload" && uploadEmailStatus && !["sent", "queued"].includes(uploadEmailStatus) ? (
         <section className="mt-8 rounded-[1.5rem] border border-orange-300/20 bg-orange-400/10 p-4 text-sm text-orange-100">
           Resume analysis finished, but the email step returned <strong>{uploadEmailStatus}</strong>
           {uploadEmailError ? `: ${uploadEmailError}` : "."}
