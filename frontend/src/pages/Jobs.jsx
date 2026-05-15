@@ -4,6 +4,7 @@ import JobCard from "../components/JobCard";
 import { getCandidateJobFeed } from "../api/feed";
 import { getRecruiterLeaderboard, runRecruiterScamCheck } from "../api/recruiter";
 import { getNotifications, markNotificationRead } from "../api/notifications";
+import { getStoredUser } from "../utils/authStorage";
 
 const fallbackJobs = [
   {
@@ -37,31 +38,53 @@ const hasScamSignals = (analysis) =>
 const getScamHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Explanation" : "No Scam Signal Detected");
 const getRiskHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Risk" : "Fraud Check");
 
-const parseStoredUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem("user") || "null");
-  } catch {
+const buildCandidateFeedFromUpload = ({ userId, uploadedResume, uploadedAnalysis }) => {
+  if (!uploadedResume && !uploadedAnalysis) {
     return null;
   }
+
+  const topJobs = Array.isArray(uploadedAnalysis?.top_jobs) ? uploadedAnalysis.top_jobs : [];
+
+  return {
+    userId: userId || null,
+    resumeId: uploadedResume?._id || null,
+    analysis: uploadedAnalysis || null,
+    searchQueries: Array.isArray(uploadedAnalysis?.search_keywords) ? uploadedAnalysis.search_keywords : [],
+    resumeSkills: Array.isArray(uploadedAnalysis?.resume_skills) ? uploadedAnalysis.resume_skills : [],
+    totalActiveJobs: topJobs.length,
+    filteredJobs: topJobs.length,
+    jobs: topJobs,
+    needsResumeUpload: false,
+  };
 };
 
 export default function Jobs() {
   const location = useLocation();
-  const user = useMemo(parseStoredUser, []);
+  const user = useMemo(getStoredUser, []);
   const token = localStorage.getItem("token");
   const isRecruiter = user?.role === "recruiter";
+  const uploadedResume = location.state?.uploadedResume || null;
+  const uploadedAnalysis = location.state?.uploadedAnalysis || null;
+  const uploadEmailStatus = location.state?.emailStatus || "";
+  const uploadEmailError = location.state?.emailError || "";
+  const uploadPipelineError = location.state?.pipelineError || "";
+  const effectiveUserId = uploadedResume?.userId || user?.id;
+  const initialCandidateFeed = useMemo(
+    () => buildCandidateFeedFromUpload({ userId: effectiveUserId, uploadedResume, uploadedAnalysis }),
+    [effectiveUserId, uploadedAnalysis, uploadedResume],
+  );
   const source = new URLSearchParams(location.search).get("source");
   const shouldPollLatest = source === "upload";
-  const shouldBlockOnDashboardLoad = true;
+  const shouldBlockOnDashboardLoad = !initialCandidateFeed;
 
-  const [candidateFeed, setCandidateFeed] = useState(null);
+  const [candidateFeed, setCandidateFeed] = useState(initialCandidateFeed);
   const [recruiterFeed, setRecruiterFeed] = useState(null);
   const [scamChecks, setScamChecks] = useState({});
   const [loading, setLoading] = useState(shouldBlockOnDashboardLoad);
   const [error, setError] = useState("");
   const [checkingCandidateId, setCheckingCandidateId] = useState("");
   const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
-  const candidateAnalysis = candidateFeed?.analysis || null;
+  const candidateAnalysis = candidateFeed?.analysis || uploadedAnalysis || null;
   const needsResumeUpload = !isRecruiter && Boolean(candidateFeed?.needsResumeUpload);
   const emptyStateTitle = candidateFeed?.emptyState?.title || "Upload your resume to see jobs";
   const emptyStateMessage = candidateFeed?.emptyState?.message
@@ -71,7 +94,7 @@ export default function Jobs() {
     let ignore = false;
 
     const load = async () => {
-      if (!token || !user?.id) {
+      if (!token || !effectiveUserId) {
         setError("Please login again to view your dashboard.");
         setLoading(false);
         return;
@@ -90,11 +113,11 @@ export default function Jobs() {
         }
 
         let latestData = null;
-        const attempts = shouldPollLatest ? 8 : 1;
+        const attempts = shouldPollLatest && !uploadedAnalysis ? 8 : 1;
 
         for (let attempt = 0; attempt < attempts; attempt += 1) {
           latestData = await getCandidateJobFeed({
-            userId: user.id,
+            userId: effectiveUserId,
             token,
           });
 
@@ -130,12 +153,12 @@ export default function Jobs() {
     return () => {
       ignore = true;
     };
-  }, [isRecruiter, shouldBlockOnDashboardLoad, shouldPollLatest, token, user?.id]);
+  }, [effectiveUserId, isRecruiter, shouldBlockOnDashboardLoad, shouldPollLatest, token, uploadedAnalysis]);
 
   useEffect(() => {
     let ignore = false;
 
-    if (isRecruiter || !token || !user?.id) {
+    if (isRecruiter || !token || !effectiveUserId) {
       return () => {
         ignore = true;
       };
@@ -158,7 +181,7 @@ export default function Jobs() {
     return () => {
       ignore = true;
     };
-  }, [isRecruiter, token, user?.id]);
+  }, [effectiveUserId, isRecruiter, token]);
 
   const candidateJobs = useMemo(() => {
     if (needsResumeUpload) {
@@ -331,6 +354,19 @@ export default function Jobs() {
           </p>
         ) : null}
       </section>
+
+      {!isRecruiter && source === "upload" && uploadPipelineError ? (
+        <section className="mt-8 rounded-[1.5rem] border border-rose-300/20 bg-rose-400/10 p-4 text-sm text-rose-100">
+          Resume upload completed, but analysis returned an error: {uploadPipelineError}
+        </section>
+      ) : null}
+
+      {!isRecruiter && source === "upload" && uploadEmailStatus && uploadEmailStatus !== "sent" ? (
+        <section className="mt-8 rounded-[1.5rem] border border-orange-300/20 bg-orange-400/10 p-4 text-sm text-orange-100">
+          Resume analysis finished, but the email step returned <strong>{uploadEmailStatus}</strong>
+          {uploadEmailError ? `: ${uploadEmailError}` : "."}
+        </section>
+      ) : null}
 
       {isRecruiter ? (
         <section className="mt-8 grid gap-5">

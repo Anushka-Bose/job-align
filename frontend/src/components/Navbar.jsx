@@ -2,6 +2,7 @@ import { Link, NavLink } from "react-router-dom";
 import { BiLogoBaidu } from "react-icons/bi";
 import { useEffect, useState } from "react";
 import { getNotifications, markNotificationRead } from "../api/notifications";
+import { getStoredUser } from "../utils/authStorage";
 
 const navItems = [
   { to: "/", label: "Home" },
@@ -12,13 +13,7 @@ const navItems = [
 export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
   const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const user = (() => {
-    try {
-      return JSON.parse(localStorage.getItem("user") || "null");
-    } catch {
-      return null;
-    }
-  })();
+  const user = getStoredUser();
   const roleAwareItems = user?.role === "recruiter"
     ? [
         { to: "/", label: "Home" },

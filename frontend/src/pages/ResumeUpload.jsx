@@ -1,19 +1,14 @@
 import { startTransition, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { uploadResume } from "../api/resume";
+import { getStoredUser } from "../utils/authStorage";
 
 export default function ResumeUpload() {
   const navigate = useNavigate();
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const user = (() => {
-    try {
-      return JSON.parse(localStorage.getItem("user") || "null");
-    } catch {
-      return null;
-    }
-  })();
+  const user = getStoredUser();
 
   if (user?.role === "recruiter") {
     return (
@@ -46,9 +41,18 @@ export default function ResumeUpload() {
         token
       });
 
+      const uploadState = {
+        uploadedAnalysis: data?.pipelineResult || null,
+        uploadedResume: data?.resume || null,
+        emailStatus: data.emailStatus || "not_attempted",
+        emailError: data.emailError || "",
+        pipelineError: data?.pipelineError || "",
+      };
+
       startTransition(() => {
         navigate("/jobs?source=upload", {
           replace: true,
+          state: uploadState,
         });
       });
       return;
