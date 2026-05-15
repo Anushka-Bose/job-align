@@ -78,57 +78,74 @@ export const uploadResume = async (req, res) => {
       version: count + 1
     });
     const candidate = await User.findById(req.user.id).select("name email").lean();
-    let pipelineResult = null;
-    let pipelineError = null;
-    let emailStatus = "not_attempted";
-    let emailError = null;
-    try {
-      pipelineResult = await runResumePipeline(filePath, rawText);
 
-      if (pipelineResult?.error) {
-        pipelineError = pipelineResult.error;
-        pipelineResult = null;
-      } else if (Array.isArray(pipelineResult?.top_jobs)) {
-        pipelineResult.top_jobs = pipelineResult.top_jobs.map((job) => ({
-          ...job,
-          score:
-            typeof job.score === "number"
-              ? job.score
-              : (typeof job.similarity_score === "number" ? job.similarity_score : null)
-        }));
-      }
-    } catch (err) {
-      pipelineError = err.message;
-    }
-
-    if (pipelineResult) {
-      resume.score = pipelineResult.resume_score ?? null;
-      resume.skills = pipelineResult.resume_skills ?? [];
-      resume.pipelineResult = pipelineResult;
-      await resume.save();
-      emailStatus = "queued";
-      runResumeUploadSideEffects({
-        candidate,
-        resume,
-        pipelineResult,
-      });
-    }
-
+    // IMPORTANT: Return response immediately without waiting for pipeline
+    // Pipeline runs async in background
     res.status(201).json({
       resume: {
         _id: resume._id,
         userId: resume.userId,
         fileUrl: resume.fileUrl,
         version: resume.version,
-        score: resume.score ?? null,
-        skills: Array.isArray(resume.skills) ? resume.skills : [],
+        score: null, // Will be updated after pipeline completes
+        skills: [],
         createdAt: resume.createdAt,
         updatedAt: resume.updatedAt,
       },
-      pipelineResult,
-      pipelineError,
-      emailStatus,
-      emailError,
+      pipelineResult: null, // Will be available after polling
+      pipelineError: null,
+      emailStatus: "queued",
+      emailError: null,
+      message: "Resume uploaded. Pipeline processing started in background.",
+    });
+
+    // Run pipeline async in background (non-blocking)
+    setImmediate(async () => {
+      try {
+        let pipelineResult = null;
+        let pipelineError = null;
+
+        try {
+          pipelineResult = await runResumePipeline(filePath, rawText);
+
+          if (pipelineResult?.error) {
+            pipelineError = pipelineResult.error;
+            pipelineResult = null;
+          } else if (Array.isArray(pipelineResult?.top_jobs)) {
+            pipelineResult.top_jobs = pipelineResult.top_jobs.map((job) => ({
+              ...job,
+              score:
+                typeof job.score === "number"
+                  ? job.score
+                  : (typeof job.similarity_score === "number" ? job.similarity_score : null)
+            }));
+          }
+        } catch (err) {
+          pipelineError = err.message;
+          console.error("Pipeline error:", err);
+        }
+
+        // Update resume with pipeline result
+        if (pipelineResult) {
+          resume.score = pipelineResult.resume_score ?? null;
+          resume.skills = pipelineResult.resume_skills ?? [];
+          resume.pipelineResult = pipelineResult;
+          await resume.save();
+
+          // Send email and notifications after pipeline completes
+          runResumeUploadSideEffects({
+            candidate,
+            resume,
+            pipelineResult,
+          });
+        } else {
+          // Save error state
+          resume.pipelineError = pipelineError;
+          await resume.save();
+        }
+      } catch (err) {
+        console.error("Resume upload background task failed:", err);
+      }
     });
 
   } catch (err) {

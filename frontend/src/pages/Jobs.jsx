@@ -112,27 +112,37 @@ export default function Jobs() {
           return;
         }
 
+        // Poll backend for job feed data
+        // Pipeline runs async on backend, so we need to poll until data is ready
         let latestData = null;
-        const attempts = shouldPollLatest && !uploadedAnalysis ? 8 : 1;
+        const maxAttempts = shouldPollLatest ? 300 : 1; // Poll for up to 5 minutes (300 * 1000ms)
+        const pollDelayMs = shouldPollLatest ? 1000 : 0; // Poll every 1 second when waiting for fresh upload
 
-        for (let attempt = 0; attempt < attempts; attempt += 1) {
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           latestData = await getCandidateJobFeed({
             userId: effectiveUserId,
             token,
           });
 
+          // Break if we got data
           if (
-            !shouldPollLatest
-            || latestData?.analysis
+            latestData?.analysis
             || (Array.isArray(latestData?.jobs) && latestData.jobs.length)
-            || latestData?.needsResumeUpload === false
           ) {
             break;
           }
 
-          await new Promise((resolve) => {
-            window.setTimeout(resolve, 600);
-          });
+          // Break if this is normal page load (not fresh upload polling)
+          if (!shouldPollLatest) {
+            break;
+          }
+
+          // For fresh uploads, continue polling if still processing
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => {
+              window.setTimeout(resolve, pollDelayMs);
+            });
+          }
         }
 
         if (!ignore) {
