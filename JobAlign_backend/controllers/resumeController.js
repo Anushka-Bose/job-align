@@ -16,6 +16,8 @@ const pdf = require("pdf-parse");
 const runResumeUploadSideEffects = ({ candidate, resume, pipelineResult }) => {
   setImmediate(async () => {
     try {
+      console.log("Starting resume upload side effects for resume:", resume._id);
+      
       await createNotificationsForResumeMatches({
         resume,
         jobs: (pipelineResult.top_jobs || []).slice(0, 5),
@@ -25,12 +27,20 @@ const runResumeUploadSideEffects = ({ candidate, resume, pipelineResult }) => {
         throw new Error("Candidate email was not found in users schema.");
       }
 
+      console.log("Sending resume top jobs email to:", candidate.email);
       const emailResult = await sendResumeTopJobsEmail({
         user: candidate,
         resume,
       });
 
       if (emailResult?.skipped) {
+        console.warn("Resume email skipped:", {
+          reason: emailResult.reason,
+          configStatus: emailResult.configStatus,
+          jobCount: emailResult.jobCount,
+          recipientPresent: emailResult.recipientPresent,
+        });
+
         await recordNotificationEmailFailure({
           userId: resume.userId,
           resumeId: resume._id,
@@ -39,6 +49,7 @@ const runResumeUploadSideEffects = ({ candidate, resume, pipelineResult }) => {
         return;
       }
 
+      console.log("Resume email sent successfully:", emailResult);
       await markNotificationEmailsDelivered({
         userId: resume.userId,
         resumeId: resume._id,
@@ -102,15 +113,18 @@ export const uploadResume = async (req, res) => {
     // Run pipeline async in background (non-blocking)
     setImmediate(async () => {
       try {
+        console.log("Starting pipeline processing for resume:", resume._id);
         let pipelineResult = null;
         let pipelineError = null;
 
         try {
           pipelineResult = await runResumePipeline(filePath, rawText);
+          console.log("Pipeline completed for resume:", resume._id);
 
           if (pipelineResult?.error) {
             pipelineError = pipelineResult.error;
             pipelineResult = null;
+            console.error("Pipeline returned error:", pipelineError);
           } else if (Array.isArray(pipelineResult?.top_jobs)) {
             pipelineResult.top_jobs = pipelineResult.top_jobs.map((job) => ({
               ...job,
@@ -119,6 +133,7 @@ export const uploadResume = async (req, res) => {
                   ? job.score
                   : (typeof job.similarity_score === "number" ? job.similarity_score : null)
             }));
+            console.log("Pipeline returned", pipelineResult.top_jobs.length, "jobs");
           }
         } catch (err) {
           pipelineError = err.message;
@@ -131,6 +146,7 @@ export const uploadResume = async (req, res) => {
           resume.skills = pipelineResult.resume_skills ?? [];
           resume.pipelineResult = pipelineResult;
           await resume.save();
+          console.log("Resume updated with pipeline result for resume:", resume._id);
 
           // Send email and notifications after pipeline completes
           runResumeUploadSideEffects({
@@ -142,6 +158,7 @@ export const uploadResume = async (req, res) => {
           // Save error state
           resume.pipelineError = pipelineError;
           await resume.save();
+          console.error("Resume saved with pipeline error for resume:", resume._id, pipelineError);
         }
       } catch (err) {
         console.error("Resume upload background task failed:", err);

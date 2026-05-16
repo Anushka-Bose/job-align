@@ -63,12 +63,14 @@ const normalizeTopJobsForEmail = (jobs = []) =>
 export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, matchedSkills = [] }) => {
   const mailer = getTransporter();
   if (!mailer || !to) {
-    return {
+    const result = {
       skipped: true,
       reason: !to ? "recipient_missing" : "mailer_not_configured",
       configStatus: getMailConfigStatus(),
       recipientPresent: Boolean(to),
     };
+    console.warn("sendJobMatchEmail skipped", result);
+    return result;
   }
 
   const skillsLine = matchedSkills.length
@@ -148,23 +150,27 @@ export const sendTopJobMatchesEmail = async ({
 }) => {
   const mailer = getTransporter();
   if (!Array.isArray(jobs) || !jobs.length) {
-    return {
+    const result = {
       skipped: true,
       reason: "no_jobs",
       configStatus: getMailConfigStatus(),
       recipientPresent: Boolean(to),
       jobCount: Array.isArray(jobs) ? jobs.length : 0,
     };
+    console.warn("sendTopJobMatchesEmail skipped", result);
+    return result;
   }
 
   if (!mailer || !to) {
-    return {
+    const result = {
       skipped: true,
       reason: !to ? "recipient_missing" : "mailer_not_configured",
       configStatus: getMailConfigStatus(),
       recipientPresent: Boolean(to),
       jobCount: jobs.length,
     };
+    console.warn("sendTopJobMatchesEmail skipped", result);
+    return result;
   }
 
   const summarizedJobs = normalizeTopJobsForEmail(jobs);

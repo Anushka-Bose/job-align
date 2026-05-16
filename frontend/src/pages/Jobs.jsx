@@ -115,7 +115,7 @@ export default function Jobs() {
         // Poll backend for job feed data
         // Pipeline runs async on backend, so we need to poll until data is ready
         let latestData = null;
-        const maxAttempts = shouldPollLatest ? 300 : 1; // Poll for up to 5 minutes (300 * 1000ms)
+        const maxAttempts = shouldPollLatest ? 120 : 1; // Poll for up to 2 minutes (120 * 1000ms)
         const pollDelayMs = shouldPollLatest ? 1000 : 0; // Poll every 1 second when waiting for fresh upload
 
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
@@ -124,10 +124,10 @@ export default function Jobs() {
             token,
           });
 
-          // Break if we got data
+          // Break if we got pipeline analysis data (not just empty jobs)
           if (
-            latestData?.analysis
-            || (Array.isArray(latestData?.jobs) && latestData.jobs.length)
+            latestData?.analysis?.top_jobs
+            || (Array.isArray(latestData?.analysis?.top_jobs) && latestData.analysis.top_jobs.length > 0)
           ) {
             break;
           }
