@@ -1,45 +1,27 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-const getSenderAddress = () => process.env.EMAIL_FROM || process.env.SMTP_USER || "";
+const getSenderAddress = () => process.env.EMAIL_FROM || "onboarding@resend.dev";
 const MAX_TOP_JOB_EMAIL_COUNT = 5;
 
-const isMailEnabled = () =>
-  Boolean(
-    process.env.SMTP_HOST &&
-    process.env.SMTP_PORT &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS,
-  );
-
 const getMailConfigStatus = () => ({
-  smtpHost: Boolean(process.env.SMTP_HOST),
-  smtpPort: Boolean(process.env.SMTP_PORT),
-  smtpUser: Boolean(process.env.SMTP_USER),
-  smtpPass: Boolean(process.env.SMTP_PASS),
-  emailFrom: Boolean(getSenderAddress()),
-  explicitEmailFrom: Boolean(process.env.EMAIL_FROM),
+  hasApiKey: Boolean(process.env.SMTP_PASS || process.env.RESEND_API_KEY),
+  emailFrom: getSenderAddress(),
 });
 
-let transporter = null;
+let resendClient = null;
 
-const getTransporter = () => {
-  if (!isMailEnabled()) {
+const getResendClient = () => {
+  const apiKey = process.env.SMTP_PASS || process.env.RESEND_API_KEY;
+  if (!apiKey) {
     return null;
   }
 
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
+  if (!resendClient) {
+    console.log("Initializing Resend client...");
+    resendClient = new Resend(apiKey);
   }
 
-  return transporter;
+  return resendClient;
 };
 
 const normalizeTopJobsForEmail = (jobs = []) =>
@@ -61,13 +43,12 @@ const normalizeTopJobsForEmail = (jobs = []) =>
   });
 
 export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, matchedSkills = [] }) => {
-  const mailer = getTransporter();
-  if (!mailer || !to) {
+  const resend = getResendClient();
+  if (!resend || !to) {
     const result = {
       skipped: true,
-      reason: !to ? "recipient_missing" : "mailer_not_configured",
+      reason: !to ? "recipient_missing" : "resend_not_configured",
       configStatus: getMailConfigStatus(),
-      recipientPresent: Boolean(to),
     };
     console.warn("sendJobMatchEmail skipped", result);
     return result;
@@ -77,9 +58,9 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
     ? matchedSkills.join(", ")
     : "New Job Alerts!!!!";
 
-  const info = await mailer.sendMail({
+  const { data, error } = await resend.emails.send({
     from: getSenderAddress(),
-    to,
+    to: [to],
     subject: `New matching job: ${job.title} at ${job.company}`,
     text: [
       `Hi ${candidateName || "there"},`,
@@ -111,31 +92,34 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
     `,
   });
 
+  if (error) {
+    console.error("Resend API error:", error);
+    throw new Error(error.message || "Failed to send email via Resend");
+  }
+
   const result = {
     skipped: false,
-    messageId: info.messageId || null,
-    accepted: Array.isArray(info.accepted) ? info.accepted : [],
-    rejected: Array.isArray(info.rejected) ? info.rejected : [],
-    response: info.response || null,
+    messageId: data.id,
   };
-  console.log("Job match email result:", result);
+  console.log("Job match email sent via Resend:", result);
   return result;
 };
 
-export const isEmailConfigured = () => isMailEnabled();
+export const isEmailConfigured = () => Boolean(getResendClient());
 export const getEmailConfigStatus = () => getMailConfigStatus();
 
 export const verifyEmailTransport = async () => {
-  const mailer = getTransporter();
-  if (!mailer) {
+  const client = getResendClient();
+  if (!client) {
     return {
       ok: false,
-      reason: "mailer_not_configured",
+      reason: "resend_not_configured",
       configStatus: getMailConfigStatus(),
     };
   }
-
-  await mailer.verify();
+  
+  // Resend doesn't have a 'verify' method like nodemailer,
+  // but we've initialized the client.
   return {
     ok: true,
     configStatus: getMailConfigStatus(),
@@ -148,29 +132,13 @@ export const sendTopJobMatchesEmail = async ({
   jobs = [],
   resumeScore = null,
 }) => {
-  const mailer = getTransporter();
+  const resend = getResendClient();
   if (!Array.isArray(jobs) || !jobs.length) {
-    const result = {
-      skipped: true,
-      reason: "no_jobs",
-      configStatus: getMailConfigStatus(),
-      recipientPresent: Boolean(to),
-      jobCount: Array.isArray(jobs) ? jobs.length : 0,
-    };
-    console.warn("sendTopJobMatchesEmail skipped", result);
-    return result;
+    return { skipped: true, reason: "no_jobs" };
   }
 
-  if (!mailer || !to) {
-    const result = {
-      skipped: true,
-      reason: !to ? "recipient_missing" : "mailer_not_configured",
-      configStatus: getMailConfigStatus(),
-      recipientPresent: Boolean(to),
-      jobCount: jobs.length,
-    };
-    console.warn("sendTopJobMatchesEmail skipped", result);
-    return result;
+  if (!resend || !to) {
+    return { skipped: true, reason: !to ? "recipient_missing" : "resend_not_configured" };
   }
 
   const summarizedJobs = normalizeTopJobsForEmail(jobs);
@@ -191,9 +159,9 @@ export const sendTopJobMatchesEmail = async ({
     </div>
   `).join("");
 
-  const info = await mailer.sendMail({
+  const { data, error } = await resend.emails.send({
     from: getSenderAddress(),
-    to,
+    to: [to],
     subject: "Your top matched jobs from Job Align",
     text: [
       `Hi ${candidateName || "there"},`,
@@ -219,15 +187,15 @@ export const sendTopJobMatchesEmail = async ({
     `,
   });
 
-  const result = {
+  if (error) {
+    console.error("Resend API error:", error);
+    throw new Error(error.message || "Failed to send email via Resend");
+  }
+
+  return {
     skipped: false,
-    messageId: info.messageId || null,
-    accepted: Array.isArray(info.accepted) ? info.accepted : [],
-    rejected: Array.isArray(info.rejected) ? info.rejected : [],
-    response: info.response || null,
+    messageId: data.id,
   };
-  console.log("Top job matches email result:", result);
-  return result;
 };
 
 export const sendResumeTopJobsEmail = async ({ user = null, resume = null }) => {
@@ -235,7 +203,7 @@ export const sendResumeTopJobsEmail = async ({ user = null, resume = null }) => 
     ? resume.pipelineResult.top_jobs
     : [];
 
-  return sendTopJobMatchesEmail({
+  return await sendTopJobMatchesEmail({
     to: user?.email || "",
     candidateName: user?.name || "",
     jobs: persistedTopJobs,
