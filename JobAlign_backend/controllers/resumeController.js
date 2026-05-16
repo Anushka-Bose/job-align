@@ -3,10 +3,9 @@ import User from "../models/userModel.js";
 import fs from "fs";
 import { createRequire } from "module";
 import { runResumePipeline } from "../services/pipelineService.js";
-import { sendResumeTopJobsEmail } from "../services/emailService.js";
 import {
   createNotificationsForResumeMatches,
-  markNotificationEmailsDelivered,
+  deliverNotificationEmails,
   recordNotificationEmailFailure,
 } from "../services/notificationService.js";
 
@@ -27,33 +26,25 @@ const runResumeUploadSideEffects = ({ candidate, resume, pipelineResult }) => {
         throw new Error("Candidate email was not found in users schema.");
       }
 
-      console.log("Sending resume top jobs email to:", candidate.email);
-      const emailResult = await sendResumeTopJobsEmail({
-        user: candidate,
-        resume,
+      console.log("Sending stored notification emails to:", candidate.email);
+      const emailResult = await deliverNotificationEmails({
+        userId: resume.userId,
+        resumeId: resume._id,
+        limit: 10,
       });
 
-      if (emailResult?.skipped) {
-        console.warn("Resume email skipped:", {
-          reason: emailResult.reason,
-          configStatus: emailResult.configStatus,
-          jobCount: emailResult.jobCount,
-          recipientPresent: emailResult.recipientPresent,
-        });
+      if (!emailResult?.sent) {
+        console.warn("Notification email delivery failed or sent nothing:", emailResult);
 
         await recordNotificationEmailFailure({
           userId: resume.userId,
           resumeId: resume._id,
-          message: emailResult.reason || "email_skipped",
+          message: emailResult?.failed ? "notification_email_failed" : "notification_email_not_sent",
         });
         return;
       }
 
-      console.log("Resume email sent successfully:", emailResult);
-      await markNotificationEmailsDelivered({
-        userId: resume.userId,
-        resumeId: resume._id,
-      });
+      console.log("Notification emails sent successfully:", emailResult);
     } catch (error) {
       console.error("Resume upload side effects failed:", error?.message || error);
       await recordNotificationEmailFailure({
