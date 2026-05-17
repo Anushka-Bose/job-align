@@ -1,27 +1,44 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 
-const getSenderAddress = () => process.env.EMAIL_FROM || "onboarding@resend.dev";
+const DEFAULT_SMTP_HOST = "smtp-relay.brevo.com";
+const DEFAULT_SMTP_PORT = 587;
 const MAX_TOP_JOB_EMAIL_COUNT = 5;
 
+const getSenderAddress = () => process.env.EMAIL_FROM || process.env.SMTP_USER || "";
+
+const parseSecureFlag = () => {
+  const value = String(process.env.SMTP_SECURE || "").trim().toLowerCase();
+  return value === "true" || value === "1";
+};
+
 const getMailConfigStatus = () => ({
-  hasApiKey: Boolean(process.env.SMTP_PASS || process.env.RESEND_API_KEY),
+  hasHost: Boolean(process.env.SMTP_HOST || DEFAULT_SMTP_HOST),
+  hasPort: Boolean(process.env.SMTP_PORT || DEFAULT_SMTP_PORT),
+  hasUser: Boolean(process.env.SMTP_USER),
+  hasPassword: Boolean(process.env.SMTP_PASS),
   emailFrom: getSenderAddress(),
 });
 
-let resendClient = null;
+let transport = null;
 
-const getResendClient = () => {
-  const apiKey = process.env.SMTP_PASS || process.env.RESEND_API_KEY;
-  if (!apiKey) {
+const getTransport = () => {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
     return null;
   }
 
-  if (!resendClient) {
-    console.log("Initializing Resend client...");
-    resendClient = new Resend(apiKey);
+  if (!transport) {
+    transport = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || DEFAULT_SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || DEFAULT_SMTP_PORT),
+      secure: parseSecureFlag(),
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
   }
 
-  return resendClient;
+  return transport;
 };
 
 const normalizeTopJobsForEmail = (jobs = []) =>
@@ -42,30 +59,53 @@ const normalizeTopJobsForEmail = (jobs = []) =>
     };
   });
 
-export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, matchedSkills = [] }) => {
-  const resend = getResendClient();
-  if (!resend || !to) {
+const sendEmail = async ({ to, subject, text, html }) => {
+  const mailTransport = getTransport();
+  const from = getSenderAddress();
+
+  if (!mailTransport || !to || !from) {
     const result = {
       skipped: true,
-      reason: !to ? "recipient_missing" : "resend_not_configured",
+      reason: !to ? "recipient_missing" : (!from ? "sender_missing" : "smtp_not_configured"),
       configStatus: getMailConfigStatus(),
     };
-    console.warn("sendJobMatchEmail skipped", result);
+    console.warn("sendEmail skipped", result);
     return result;
   }
 
+  try {
+    const info = await mailTransport.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+    });
+
+    return {
+      skipped: false,
+      messageId: info.messageId || "",
+      accepted: info.accepted || [],
+      rejected: info.rejected || [],
+    };
+  } catch (error) {
+    console.error("SMTP email error:", error);
+    throw new Error(error?.message || "Failed to send email via SMTP");
+  }
+};
+
+export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, matchedSkills = [] }) => {
   const skillsLine = matchedSkills.length
     ? matchedSkills.join(", ")
     : "New Job Alerts!!!!";
 
-  const { data, error } = await resend.emails.send({
-    from: getSenderAddress(),
-    to: [to],
+  const result = await sendEmail({
+    to,
     subject: `New matching job: ${job.title} at ${job.company}`,
     text: [
       `Hi ${candidateName || "there"},`,
       "",
-      `A new job matching your uploaded resume was found:`,
+      "A new job matching your uploaded resume was found:",
       `${job.title} at ${job.company}`,
       `Location: ${job.location || "Remote / Unspecified"}`,
       `Match score: ${matchScore}%`,
@@ -92,38 +132,47 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
     `,
   });
 
-  if (error) {
-    console.error("Resend API error:", error);
-    throw new Error(error.message || "Failed to send email via Resend");
+  if (!result.skipped) {
+    console.log("Job match email sent via SMTP:", result);
   }
 
-  const result = {
-    skipped: false,
-    messageId: data.id,
-  };
-  console.log("Job match email sent via Resend:", result);
   return result;
 };
 
-export const isEmailConfigured = () => Boolean(getResendClient());
+export const isEmailConfigured = () => Boolean(getTransport() && getSenderAddress());
 export const getEmailConfigStatus = () => getMailConfigStatus();
 
 export const verifyEmailTransport = async () => {
-  const client = getResendClient();
-  if (!client) {
+  const mailTransport = getTransport();
+  if (!mailTransport) {
     return {
       ok: false,
-      reason: "resend_not_configured",
+      reason: "smtp_not_configured",
       configStatus: getMailConfigStatus(),
     };
   }
-  
-  // Resend doesn't have a 'verify' method like nodemailer,
-  // but we've initialized the client.
-  return {
-    ok: true,
-    configStatus: getMailConfigStatus(),
-  };
+
+  if (!getSenderAddress()) {
+    return {
+      ok: false,
+      reason: "sender_missing",
+      configStatus: getMailConfigStatus(),
+    };
+  }
+
+  try {
+    await mailTransport.verify();
+    return {
+      ok: true,
+      configStatus: getMailConfigStatus(),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error?.message || "smtp_verify_failed",
+      configStatus: getMailConfigStatus(),
+    };
+  }
 };
 
 export const sendTopJobMatchesEmail = async ({
@@ -132,13 +181,8 @@ export const sendTopJobMatchesEmail = async ({
   jobs = [],
   resumeScore = null,
 }) => {
-  const resend = getResendClient();
   if (!Array.isArray(jobs) || !jobs.length) {
     return { skipped: true, reason: "no_jobs" };
-  }
-
-  if (!resend || !to) {
-    return { skipped: true, reason: !to ? "recipient_missing" : "resend_not_configured" };
   }
 
   const summarizedJobs = normalizeTopJobsForEmail(jobs);
@@ -159,9 +203,8 @@ export const sendTopJobMatchesEmail = async ({
     </div>
   `).join("");
 
-  const { data, error } = await resend.emails.send({
-    from: getSenderAddress(),
-    to: [to],
+  return await sendEmail({
+    to,
     subject: "Your top matched jobs from Job Align",
     text: [
       `Hi ${candidateName || "there"},`,
@@ -186,16 +229,6 @@ export const sendTopJobMatchesEmail = async ({
       </div>
     `,
   });
-
-  if (error) {
-    console.error("Resend API error:", error);
-    throw new Error(error.message || "Failed to send email via Resend");
-  }
-
-  return {
-    skipped: false,
-    messageId: data.id,
-  };
 };
 
 export const sendResumeTopJobsEmail = async ({ user = null, resume = null }) => {

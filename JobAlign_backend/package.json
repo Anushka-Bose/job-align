@@ -23,7 +23,6 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.7",
     "pdf-parse": "^1.1.1",
-    "resend": "^6.12.3",
     "string-similarity": "^4.0.4"
   },
   "devDependencies": {
