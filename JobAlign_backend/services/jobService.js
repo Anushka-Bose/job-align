@@ -11,6 +11,7 @@ const DEFAULT_SEARCH_TERMS = [
   "data analyst",
 ];
 const DEFAULT_PREFERRED_LOCATION = process.env.DEFAULT_JOB_LOCATION || "India";
+const CRON_NOTIFICATION_EMAIL_BATCH_LIMIT = Number(process.env.CRON_NOTIFICATION_EMAIL_BATCH_LIMIT || 10);
 const INDIA_LOCATION_HINTS = [
   "india",
   "indian",
@@ -263,7 +264,7 @@ const fetchJobs = async () => {
     }
 
     const notificationResult = await createNotificationsForNewJobs(newlyInsertedJobs);
-    const deliveryResult = await deliverNotificationEmails({ limit: 100 });
+    const deliveryResult = await deliverNotificationEmails({ limit: CRON_NOTIFICATION_EMAIL_BATCH_LIMIT });
     console.log("Jobs updated");
     console.log(`Notifications created: ${notificationResult.created}`);
     console.log(`Notification emails sent: ${deliveryResult.sent}, failed: ${deliveryResult.failed}`);

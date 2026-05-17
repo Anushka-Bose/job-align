@@ -13,6 +13,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, ".env") });
 const PORT = process.env.PORT || 3000;
 const JOB_FETCH_CRON = process.env.JOB_FETCH_CRON || "0 * * * *";
+const ENABLE_STARTUP_JOB_FETCH = String(process.env.ENABLE_STARTUP_JOB_FETCH || "").toLowerCase() === "true";
 
 const DB = process.env.MONGO_DB_URL;
 mongoose.connect(DB).then(()=>{
@@ -29,9 +30,13 @@ mongoose.connect(DB).then(()=>{
         console.error("Email transport verification failed:", error?.message || error);
         console.error("Current email config flags:", getEmailConfigStatus());
       });
-    fetchJobs().catch((error) => {
-      console.error("Initial job fetch failed:", error?.message || error);
-    });
+    if (ENABLE_STARTUP_JOB_FETCH) {
+      fetchJobs().catch((error) => {
+        console.error("Initial job fetch failed:", error?.message || error);
+      });
+    } else {
+      console.log("Skipping initial job fetch on startup.");
+    }
 }).catch((err)=>{
     console.log('DB connection error:',err);
 });
