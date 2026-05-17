@@ -6,6 +6,12 @@ const MAX_TOP_JOB_EMAIL_COUNT = 5;
 
 const getSenderAddress = () => process.env.EMAIL_FROM || process.env.SMTP_USER || "";
 
+const normalizeSmtpHost = (value = "") =>
+  String(value || "")
+    .trim()
+    .replace(/^[a-z]+:\/\//i, "")
+    .replace(/\/+$/, "");
+
 const parseSecureFlag = () => {
   const value = String(process.env.SMTP_SECURE || "").trim().toLowerCase();
   return value === "true" || value === "1";
@@ -28,7 +34,7 @@ const getTransport = () => {
 
   if (!transport) {
     transport = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || DEFAULT_SMTP_HOST,
+      host: normalizeSmtpHost(process.env.SMTP_HOST) || DEFAULT_SMTP_HOST,
       port: Number(process.env.SMTP_PORT || DEFAULT_SMTP_PORT),
       secure: parseSecureFlag(),
       auth: {
