@@ -1,51 +1,17 @@
-import nodemailer from "nodemailer";
+import axios from "axios";
 
-const DEFAULT_SMTP_HOST = "smtp-relay.brevo.com";
-const DEFAULT_SMTP_PORT = 587;
+const BREVO_EMAIL_API_URL = "https://api.brevo.com/v3/smtp/email";
 const MAX_TOP_JOB_EMAIL_COUNT = 5;
 
-const getSenderAddress = () => process.env.EMAIL_FROM || process.env.SMTP_USER || "";
-
-const normalizeSmtpHost = (value = "") =>
-  String(value || "")
-    .trim()
-    .replace(/^[a-z]+:\/\//i, "")
-    .replace(/\/+$/, "");
-
-const parseSecureFlag = () => {
-  const value = String(process.env.SMTP_SECURE || "").trim().toLowerCase();
-  return value === "true" || value === "1";
-};
+const getBrevoApiKey = () => process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY || "";
+const getSenderAddress = () => process.env.EMAIL_FROM || "";
+const getSenderName = () => process.env.EMAIL_FROM_NAME || "Job Align";
 
 const getMailConfigStatus = () => ({
-  hasHost: Boolean(process.env.SMTP_HOST || DEFAULT_SMTP_HOST),
-  hasPort: Boolean(process.env.SMTP_PORT || DEFAULT_SMTP_PORT),
-  hasUser: Boolean(process.env.SMTP_USER),
-  hasPassword: Boolean(process.env.SMTP_PASS),
+  hasApiKey: Boolean(getBrevoApiKey()),
   emailFrom: getSenderAddress(),
+  emailFromName: getSenderName(),
 });
-
-let transport = null;
-
-const getTransport = () => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    return null;
-  }
-
-  if (!transport) {
-    transport = nodemailer.createTransport({
-      host: normalizeSmtpHost(process.env.SMTP_HOST) || DEFAULT_SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || DEFAULT_SMTP_PORT),
-      secure: parseSecureFlag(),
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-  }
-
-  return transport;
-};
 
 const normalizeTopJobsForEmail = (jobs = []) =>
   (Array.isArray(jobs) ? jobs : []).slice(0, MAX_TOP_JOB_EMAIL_COUNT).map((job) => {
@@ -65,14 +31,14 @@ const normalizeTopJobsForEmail = (jobs = []) =>
     };
   });
 
-const sendEmail = async ({ to, subject, text, html }) => {
-  const mailTransport = getTransport();
+const sendEmail = async ({ to, toName = "", subject, text, html }) => {
+  const apiKey = getBrevoApiKey();
   const from = getSenderAddress();
 
-  if (!mailTransport || !to || !from) {
+  if (!apiKey || !to || !from) {
     const result = {
       skipped: true,
-      reason: !to ? "recipient_missing" : (!from ? "sender_missing" : "smtp_not_configured"),
+      reason: !to ? "recipient_missing" : (!from ? "sender_missing" : "brevo_api_not_configured"),
       configStatus: getMailConfigStatus(),
     };
     console.warn("sendEmail skipped", result);
@@ -80,23 +46,49 @@ const sendEmail = async ({ to, subject, text, html }) => {
   }
 
   try {
-    const info = await mailTransport.sendMail({
-      from,
-      to,
-      subject,
-      text,
-      html,
-    });
+    const response = await axios.post(
+      BREVO_EMAIL_API_URL,
+      {
+        sender: {
+          name: getSenderName(),
+          email: from,
+        },
+        to: [
+          {
+            email: to,
+            ...(toName ? { name: toName } : {}),
+          },
+        ],
+        subject,
+        htmlContent: html,
+        textContent: text,
+      },
+      {
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          "api-key": apiKey,
+        },
+        timeout: 20000,
+      },
+    );
 
     return {
       skipped: false,
-      messageId: info.messageId || "",
-      accepted: info.accepted || [],
-      rejected: info.rejected || [],
+      messageId: response?.data?.messageId || "",
+      accepted: [to],
+      rejected: [],
     };
   } catch (error) {
-    console.error("SMTP email error:", error);
-    throw new Error(error?.message || "Failed to send email via SMTP");
+    const brevoPayload = error?.response?.data;
+    if (brevoPayload) {
+      console.error("Brevo API error:", brevoPayload);
+    } else {
+      console.error("Brevo API request failed:", error?.message || error);
+    }
+    throw new Error(
+      brevoPayload?.message || error?.message || "Failed to send email via Brevo API",
+    );
   }
 };
 
@@ -107,6 +99,7 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
 
   const result = await sendEmail({
     to,
+    toName: candidateName || "",
     subject: `New matching job: ${job.title} at ${job.company}`,
     text: [
       `Hi ${candidateName || "there"},`,
@@ -139,21 +132,20 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
   });
 
   if (!result.skipped) {
-    console.log("Job match email sent via SMTP:", result);
+    console.log("Job match email sent via Brevo API:", result);
   }
 
   return result;
 };
 
-export const isEmailConfigured = () => Boolean(getTransport() && getSenderAddress());
+export const isEmailConfigured = () => Boolean(getBrevoApiKey() && getSenderAddress());
 export const getEmailConfigStatus = () => getMailConfigStatus();
 
 export const verifyEmailTransport = async () => {
-  const mailTransport = getTransport();
-  if (!mailTransport) {
+  if (!getBrevoApiKey()) {
     return {
       ok: false,
-      reason: "smtp_not_configured",
+      reason: "brevo_api_not_configured",
       configStatus: getMailConfigStatus(),
     };
   }
@@ -166,19 +158,10 @@ export const verifyEmailTransport = async () => {
     };
   }
 
-  try {
-    await mailTransport.verify();
-    return {
-      ok: true,
-      configStatus: getMailConfigStatus(),
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: error?.message || "smtp_verify_failed",
-      configStatus: getMailConfigStatus(),
-    };
-  }
+  return {
+    ok: true,
+    configStatus: getMailConfigStatus(),
+  };
 };
 
 export const sendTopJobMatchesEmail = async ({
@@ -211,6 +194,7 @@ export const sendTopJobMatchesEmail = async ({
 
   return await sendEmail({
     to,
+    toName: candidateName || "",
     subject: "Your top matched jobs from Job Align",
     text: [
       `Hi ${candidateName || "there"},`,

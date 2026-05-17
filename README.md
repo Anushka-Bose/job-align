@@ -82,12 +82,9 @@ GEMINI_API_KEY=your_gemini_api_key
 Optional variables:
 
 ```env
-SMTP_HOST=your_smtp_host
-SMTP_PORT=587
-SMTP_USER=your_smtp_user
-SMTP_PASS=your_smtp_password
-SMTP_SECURE=false
+BREVO_API_KEY=your_brevo_api_key
 EMAIL_FROM=no-reply@example.com
+EMAIL_FROM_NAME=Job Align
 MIN_NOTIFICATION_MATCH_SCORE=70
 SCAM_FILTER_USE_LLM=true
 SCAM_FILTER_MODEL=gemini
