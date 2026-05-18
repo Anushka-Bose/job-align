@@ -10,6 +10,7 @@ import ResumeUpload from "./pages/ResumeUpload";
 import RecruiterDashboard from "./pages/RecruiterDashboard";
 import RecruiterJobs from "./pages/RecruiterJobs";
 import ResumeScore from "./pages/ResumeScore";
+import RecruiterDashboard from "./pages/RecruiterDashboard";
 import ResumeHighlights from "./pages/ResumeHighlights";
 
 export default function App() {
@@ -64,6 +65,10 @@ export default function App() {
             }
           />
           <Route
+            path="/recruiter-dashboard"
+            element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <RecruiterDashboard />
             path="/resume-highlights"
             element={
               <ProtectedRoute isAuthenticated={isAuthenticated}>

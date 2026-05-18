@@ -57,7 +57,7 @@ export default function Login({ setIsAuthenticated }) {
       );
 
       setIsAuthenticated(true);
-      navigate(destination);
+      navigate(data.user?.role === "recruiter" ? "/recruiter-dashboard" : "/");
     } catch (err) {
       alert(err.message);
     }

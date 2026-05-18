@@ -11,7 +11,7 @@ const features = [
   {
     title: "Smart Resume Screening",
     description:
-      "Upload your resume and let Smart Align AI detect strengths, keywords, and role alignment in seconds.",
+      "Upload your resume and let Job Align AI detect strengths, keywords, and role alignment in seconds.",
   },
   {
     title: "Tailored Job Discovery",
@@ -27,7 +27,7 @@ const features = [
 
 const steps = [
   "Upload your resume or create your profile.",
-  "Let Smart Align AI analyze your skills and experience.",
+  "Let Job Align AI analyze your skills and experience.",
   "Review curated job opportunities and apply faster.",
 ];
 const STEPS_TEXT = [
@@ -143,7 +143,7 @@ export default function Home({ isAuthenticated = false }) {
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-              Smart Align AI helps you screen your profile, identify stronger matches, and focus on
+              Job Align helps you screen your profile, identify stronger matches, and focus on
               opportunities where your skills actually stand out.
             </p>
 
@@ -275,13 +275,13 @@ export default function Home({ isAuthenticated = false }) {
       </section>
 
       <section className="mx-auto max-w-7xl px-6 py-8 lg:px-10 lg:py-16">
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-3 justify-items-center">
           {features.map((feature) => (
             <article
               key={feature.title}
-              className="rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-6 transition hover:-translate-y-1 hover:border-teal-300/30 hover:bg-white/[0.05]"
+              className="rounded-[1.75rem] border border-white/10 bg-white/[0.03] p-6 transition hover:-translate-y-1 hover:border-teal-300/30 hover:bg-white/[0.05] items-center text-center"
             >
-              <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-teal-300 to-orange-400" />
+              <div className="mx-auto h-12 w-12 rounded-2xl bg-gradient-to-br from-teal-300 to-orange-400" />
               <h3 className="mt-5 text-xl font-semibold">{feature.title}</h3>
               <p className="mt-3 leading-7 text-slate-300">{feature.description}</p>
             </article>
@@ -292,7 +292,7 @@ export default function Home({ isAuthenticated = false }) {
       <section className="mx-auto max-w-7xl px-6 pb-20 lg:px-10">
         <div className="grid gap-8 rounded-[2rem] border border-white/10 bg-slate-900/70 p-8 lg:grid-cols-[1.1fr_0.9fr] lg:p-10">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-orange-300">
+            <p className="text-sm font-semibold uppercase tracking-[0.3em] text-teal-300">
               How it works
             </p>
             <h2 className="mt-4 text-3xl font-bold">A cleaner, faster route from resume to role</h2>

@@ -10,6 +10,10 @@ const navItems = [
   { to: "/upload", label: "Upload" },
 ];
 
+const recruiterNavItems = [
+  { to: "/recruiter-dashboard", label: "Dashboard" },
+];
+
 export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
   const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -26,7 +30,6 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
 
   useEffect(() => {
     if (!canSeeNotifications || !token) {
-      setNotificationFeed({ unreadCount: 0, notifications: [] });
       return;
     }
 
@@ -79,27 +82,27 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
 
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/80 text-white backdrop-blur-xl">
-      <nav className="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-10">
-        <Link to="/" className="flex items-center gap-3">
+      <nav className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:px-6 lg:px-10">
+        <Link to="/" className="flex shrink-0 items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-300 via-cyan-300 to-orange-400 text-base font-black text-slate-950 shadow-lg shadow-teal-500/20">
             <BiLogoBaidu />
           </span>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-teal-200">
+            <p className="hidden text-xs font-semibold uppercase tracking-[0.35em] text-teal-200 sm:block">
               Career Intelligence
             </p>
-            <h1 className="text-xl font-black tracking-tight">Smart Align AI</h1>
+            <h1 className="text-base font-black tracking-tight sm:text-xl">Job Align</h1>
           </div>
         </Link>
 
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-          <div className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-white/5 p-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2 sm:gap-3">
+          <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-full border border-white/10 bg-white/5 p-1">
             {roleAwareItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `rounded-full px-4 py-2 text-sm font-medium transition ${
+                  `shrink-0 rounded-full px-3 py-2 text-sm font-medium transition sm:px-4 ${
                     isActive
                       ? "bg-white text-slate-950"
                       : "text-slate-300 hover:bg-white/10 hover:text-white"
@@ -112,7 +115,7 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
           </div>
 
           {canSeeNotifications ? (
-            <div className="relative">
+            <div className="relative shrink-0">
               <button
                 type="button"
                 onClick={() => setIsNotificationOpen((value) => !value)}
@@ -127,7 +130,7 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
               </button>
 
               {isNotificationOpen ? (
-                <div className="absolute right-0 mt-3 w-[340px] rounded-3xl border border-white/10 bg-slate-950/95 p-4 shadow-2xl shadow-black/40">
+                <div className="absolute right-0 mt-3 w-[min(340px,calc(100vw-3rem))] rounded-3xl border border-white/10 bg-slate-950/95 p-4 text-left shadow-2xl shadow-black/40">
                   <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
                     Resume Alerts
                   </p>
@@ -164,7 +167,7 @@ export default function Navbar({ isAuthenticated, setIsAuthenticated }) {
           ) : null}
 
           {!isAuthenticated ? (
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
               <Link
                 to="/login"
                 className="rounded-full px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white"
