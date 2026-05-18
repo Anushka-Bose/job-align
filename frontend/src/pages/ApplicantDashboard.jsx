@@ -17,7 +17,7 @@ export default function ApplicantDashboard() {
           Applicant Dashboard
         </p>
         <h1 className="mt-4 text-4xl font-black leading-tight text-white md:text-5xl">
-          Welcome {firstName} to Smart Align.
+          Welcome {firstName} to Job Align.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-300">
           Your workspace is ready for resume updates, matched jobs, and application momentum.
