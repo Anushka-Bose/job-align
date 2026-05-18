@@ -5,7 +5,6 @@ import User from "../models/userModel.js";
 import { protect } from "../middlewares/authMiddleware.js";
 import { authorizeRoles } from "../middlewares/roleMiddleware.js";
 import { calculateSmartMatchScore, getSmartExplanation } from "../services/matchService.js";
-import { analyzeResumeAgainstJobs } from "../services/pipelineService.js";
 import { runResumeScamCheck } from "../services/scamService.js";
 
 const router = express.Router();
@@ -28,24 +27,28 @@ const getLatestCandidateResumes = async () => {
     .select("_id name email")
     .lean();
 
-  const candidateIds = candidates.map((candidate) => candidate._id);
-  const resumes = await Resume.find({
-    userId: { $in: candidateIds },
-    $or: [
-      { rawText: { $exists: true, $ne: "" } },
-      { fileUrl: { $exists: true, $ne: "" } },
-    ],
-  })
-    .sort({ createdAt: -1 })
-    .lean();
+  const resumes = await Resume.aggregate([
+    {
+      $match: {
+        $or: [
+          { rawText: { $exists: true, $ne: "" } },
+          { fileUrl: { $exists: true, $ne: "" } },
+        ],
+      },
+    },
+    { $sort: { userId: 1, createdAt: -1 } },
+    {
+      $group: {
+        _id: "$userId",
+        resume: { $first: "$$ROOT" },
+      },
+    },
+    { $replaceRoot: { newRoot: "$resume" } },
+  ]);
 
-  const latestByUser = new Map();
-  for (const resume of resumes) {
-    const key = String(resume.userId);
-    if (!latestByUser.has(key)) {
-      latestByUser.set(key, resume);
-    }
-  }
+  const latestByUser = new Map(
+    resumes.map((resume) => [String(resume.userId), resume]),
+  );
 
   return candidates
     .map((candidate) => ({
@@ -101,6 +104,37 @@ const buildEligibility = (resume, jobs) => {
   };
 };
 
+router.get("/jobs", protect, authorizeRoles("recruiter"), async (req, res) => {
+  try {
+    const recruiter = await User.findById(req.user.id).lean();
+    if (!recruiter?.company) {
+      return res.status(400).json({ message: "Recruiter company is not configured." });
+    }
+
+    const companyJobs = await getCompanyJobs(recruiter.company);
+
+    res.status(200).json({
+      company: recruiter.company,
+      totalJobs: companyJobs.length,
+      jobs: companyJobs
+        .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0))
+        .map((job) => ({
+          id: job._id,
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          description: job.description,
+          skillsRequired: Array.isArray(job.skillsRequired) ? job.skillsRequired : [],
+          source: job.source || "",
+          createdAt: job.createdAt,
+        })),
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not load recruiter company jobs." });
+  }
+});
+
 router.get("/candidates/leaderboard", protect, authorizeRoles("recruiter"), async (req, res) => {
   try {
     const recruiter = await User.findById(req.user.id).lean();
@@ -122,25 +156,10 @@ router.get("/candidates/leaderboard", protect, authorizeRoles("recruiter"), asyn
         if (!isEligibleFromStoredPipeline && !isEligibleFromCompanyJobs) {
           return null;
         }
-
-        let pipelineResult = null;
-        if (!storedTopJob && companyJobs.length) {
-          pipelineResult = await analyzeResumeAgainstJobs({
-            filePath: resume.fileUrl || "",
-            rawText: resume.rawText || "",
-            jobs: companyJobs,
-          });
-
-          if (pipelineResult?.error) {
-            return null;
-          }
-        }
-
-        const rescoredTopJob = Array.isArray(pipelineResult?.top_jobs) ? pipelineResult.top_jobs[0] : null;
-        const topJob = storedTopJob || rescoredTopJob;
+        const topJob = storedTopJob || fallbackEligibility?.bestMatch?.job || null;
         const pipelineScore = storedTopJob
           ? (resume.score ?? resume.pipelineResult?.resume_score ?? 0)
-          : (pipelineResult?.resume_score ?? resume.score ?? 0);
+          : (resume.score ?? fallbackEligibility?.bestMatch?.eligibilityScore ?? 0);
         const eligibilityScore = storedTopJob
           ? (() => {
               const rawScore = typeof storedTopJob.score === "number"

@@ -1,24 +1,20 @@
-# Core API Framework
+# API and serving
 fastapi
 uvicorn
 python-multipart
 
-# PDF Processing
+# Resume parsing and NLP
 pymupdf
-
-# NLP Processing
 spacy
-
-# Embedding Model
 sentence-transformers
 
-# Similarity & ML Utilities
+# ML and numerical utilities
 scikit-learn
 numpy
 
-# Data Validation
+# Validation and configuration
 pydantic
-
-# Optional (Environment Management)
 python-dotenv
+
+# Optional GenAI helpers
 google-generativeai

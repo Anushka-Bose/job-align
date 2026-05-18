@@ -141,6 +141,10 @@ const runPythonCommand = (command, args) =>
         return;
       }
 
+      if (stderr.trim()) {
+        console.warn("Python pipeline warnings:", stderr.trim());
+      }
+
       try {
         resolve(parseJsonFromStdout(stdout));
       } catch (error) {

@@ -1,19 +1,14 @@
-import { useState } from "react";
+import { startTransition, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { uploadResume } from "../api/resume";
+import { getStoredUser } from "../utils/authStorage";
 
 export default function ResumeUpload() {
   const navigate = useNavigate();
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const user = (() => {
-    try {
-      return JSON.parse(localStorage.getItem("user") || "null");
-    } catch {
-      return null;
-    }
-  })();
+  const user = getStoredUser();
 
   if (user?.role === "recruiter") {
     return (
@@ -46,17 +41,21 @@ export default function ResumeUpload() {
         token
       });
 
-      if (data?.pipelineResult) {
-        localStorage.setItem("latestJobAnalysis", JSON.stringify(data.pipelineResult));
-      }
+      const uploadState = {
+        uploadedAnalysis: data?.pipelineResult || null,
+        uploadedResume: data?.resume || null,
+        emailStatus: data.emailStatus || "not_attempted",
+        emailError: data.emailError || "",
+        pipelineError: data?.pipelineError || "",
+      };
 
-      if (data?.pipelineError) {
-        setStatus(`Resume uploaded, but analysis failed: ${data.pipelineError}`);
-      } else {
-        setStatus("Resume uploaded and matched against live jobs.");
-      }
-
-      navigate("/resume-score");
+      startTransition(() => {
+        navigate("/jobs?source=upload", {
+          replace: true,
+          state: uploadState,
+        });
+      });
+      return;
     } catch (err) {
       setStatus(err.message || "Upload failed");
     } finally {
@@ -119,6 +118,7 @@ export default function ResumeUpload() {
           </label>
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={isUploading}
             className="mt-6 w-full rounded-full bg-teal-400 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-70"

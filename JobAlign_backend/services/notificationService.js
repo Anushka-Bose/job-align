@@ -13,6 +13,64 @@ const getResumeSkills = (resume) => uniqueValues([
   ...(Array.isArray(resume?.pipelineResult?.resume_skills) ? resume.pipelineResult.resume_skills : []),
 ]);
 
+const getJobSkills = (job) =>
+  uniqueValues([
+    ...(Array.isArray(job?.skillsRequired) ? job.skillsRequired : []),
+    ...(Array.isArray(job?.skills) ? job.skills : []),
+  ]);
+
+const buildNotificationPayload = ({ resume, job, matchScore, matchedSkills }) => ({
+  userId: resume.userId,
+  resumeId: resume._id,
+  jobId: String(job.id || job.jobId || `${job.company || "company"}-${job.title || "job"}`),
+  title: job.title || "Matched role",
+  company: job.company || "Recommended company",
+  location: job.location || "",
+  type: job.type || "",
+  redirectUrl: job.redirectUrl || job.redirect_url || "",
+  message: `New ${job.title || "matched"} role at ${job.company || "a company"} matches your uploaded resume.`,
+  matchScore,
+  matchedSkills,
+  isRead: false,
+  emailSentAt: null,
+  lastEmailError: "",
+});
+
+const upsertNotification = async (payload) => {
+  const existing = await Notification.findOne({
+    userId: payload.userId,
+    jobId: payload.jobId,
+  })
+    .select("_id")
+    .lean();
+
+  if (existing) {
+    await Notification.updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          resumeId: payload.resumeId,
+          title: payload.title,
+          company: payload.company,
+          location: payload.location,
+          type: payload.type,
+          redirectUrl: payload.redirectUrl,
+          message: payload.message,
+          matchScore: payload.matchScore,
+          matchedSkills: payload.matchedSkills,
+          isRead: false,
+          emailSentAt: null,
+          lastEmailError: "",
+        },
+      },
+    );
+    return { created: false };
+  }
+
+  await Notification.create(payload);
+  return { created: true };
+};
+
 const getLatestCandidateResumes = async () => {
   const candidates = await User.find({ role: "candidate" })
     .select("_id")
@@ -50,13 +108,6 @@ export const createNotificationsForNewJobs = async (jobs = []) => {
     return { created: 0 };
   }
 
-  const users = await User.find({
-    _id: { $in: latestResumes.map((resume) => resume.userId) },
-  })
-    .select("_id name email")
-    .lean();
-  const usersById = new Map(users.map((user) => [String(user._id), user]));
-
   let created = 0;
 
   for (const job of jobs) {
@@ -78,32 +129,16 @@ export const createNotificationsForNewJobs = async (jobs = []) => {
       }
 
       try {
-        await Notification.create({
-          userId: resume.userId,
-          resumeId: resume._id,
-          jobId: String(job.id),
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          type: job.type,
-          redirectUrl: job.redirectUrl || "",
-          message: `New ${job.title} role at ${job.company} matches your uploaded resume.`,
+        const payload = buildNotificationPayload({
+          resume,
+          job,
           matchScore,
           matchedSkills: explanation.matchedSkills,
         });
-        const candidate = usersById.get(String(resume.userId));
-        try {
-          await sendJobMatchEmail({
-            to: candidate?.email,
-            candidateName: candidate?.name,
-            job,
-            matchScore,
-            matchedSkills: explanation.matchedSkills,
-          });
-        } catch (emailError) {
-          console.error(`Email notification failed for ${candidate?.email || "unknown user"}:`, emailError.message);
+        const result = await upsertNotification(payload);
+        if (result.created) {
+          created += 1;
         }
-        created += 1;
       } catch (error) {
         if (error?.code !== 11000) {
           throw error;
@@ -113,4 +148,190 @@ export const createNotificationsForNewJobs = async (jobs = []) => {
   }
 
   return { created };
+};
+
+export const createNotificationsForResumeMatches = async ({ resume, jobs = [] }) => {
+  if (!resume?._id || !resume?.userId || !Array.isArray(jobs) || !jobs.length) {
+    return { stored: 0 };
+  }
+
+  const resumeSkills = getResumeSkills(resume);
+  let stored = 0;
+
+  for (const job of jobs) {
+    const jobSkills = getJobSkills(job);
+    const normalizedJobScore = typeof job?.score === "number"
+      ? (job.score <= 1 ? Math.round(job.score * 100) : Math.round(job.score))
+      : calculateSmartMatchScore(resumeSkills, jobSkills);
+    const explanation = resumeSkills.length
+      ? getSmartExplanation(resumeSkills, jobSkills)
+      : { matchedSkills: [] };
+
+    const payload = buildNotificationPayload({
+      resume,
+      job,
+      matchScore: normalizedJobScore,
+      matchedSkills: explanation.matchedSkills,
+    });
+
+    await upsertNotification(payload);
+    stored += 1;
+  }
+
+  return { stored };
+};
+
+export const deliverNotificationEmails = async ({ userId = null, resumeId = null, limit = 50 } = {}) => {
+  const query = {
+    emailSentAt: null,
+  };
+
+  if (userId) {
+    query.userId = userId;
+  }
+
+  if (resumeId) {
+    query.resumeId = resumeId;
+  }
+
+  const pendingNotifications = await Notification.find(query)
+    .sort({ createdAt: 1 })
+    .limit(limit)
+    .lean();
+
+  if (!pendingNotifications.length) {
+    return { sent: 0, failed: 0, pending: 0 };
+  }
+
+  const users = await User.find({
+    _id: { $in: uniqueValues(pendingNotifications.map((item) => String(item.userId))) },
+  })
+    .select("_id name email")
+    .lean();
+  const usersById = new Map(users.map((user) => [String(user._id), user]));
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const notification of pendingNotifications) {
+    const candidate = usersById.get(String(notification.userId));
+
+    try {
+      const result = await sendJobMatchEmail({
+        to: candidate?.email,
+        candidateName: candidate?.name,
+        job: {
+          title: notification.title,
+          company: notification.company,
+          location: notification.location,
+          redirectUrl: notification.redirectUrl,
+        },
+        matchScore: notification.matchScore,
+        matchedSkills: notification.matchedSkills || [],
+      });
+
+      if (result?.skipped) {
+        failed += 1;
+        await Notification.updateOne(
+          { _id: notification._id },
+          {
+            $inc: { emailAttempts: 1 },
+            $set: {
+              lastEmailError: result.reason || "email_skipped",
+            },
+          },
+        );
+        continue;
+      }
+
+      sent += 1;
+      await Notification.updateOne(
+        { _id: notification._id },
+        {
+          $inc: { emailAttempts: 1 },
+          $set: {
+            emailSentAt: new Date(),
+            lastEmailError: "",
+          },
+        },
+      );
+    } catch (error) {
+      failed += 1;
+      await Notification.updateOne(
+        { _id: notification._id },
+        {
+          $inc: { emailAttempts: 1 },
+          $set: {
+            lastEmailError: error?.message || "email_send_failed",
+          },
+        },
+      );
+    }
+  }
+
+  return {
+    sent,
+    failed,
+    pending: Math.max(0, pendingNotifications.length - sent),
+  };
+};
+
+export const markNotificationEmailsDelivered = async ({ userId = null, resumeId = null }) => {
+  const query = {};
+
+  if (userId) {
+    query.userId = userId;
+  }
+
+  if (resumeId) {
+    query.resumeId = resumeId;
+  }
+
+  if (!Object.keys(query).length) {
+    return { updated: 0 };
+  }
+
+  const result = await Notification.updateMany(
+    query,
+    {
+      $set: {
+        emailSentAt: new Date(),
+        lastEmailError: "",
+      },
+    },
+  );
+
+  return {
+    updated: result.modifiedCount ?? 0,
+  };
+};
+
+export const recordNotificationEmailFailure = async ({ userId = null, resumeId = null, message = "email_send_failed" }) => {
+  const query = {};
+
+  if (userId) {
+    query.userId = userId;
+  }
+
+  if (resumeId) {
+    query.resumeId = resumeId;
+  }
+
+  if (!Object.keys(query).length) {
+    return { updated: 0 };
+  }
+
+  const result = await Notification.updateMany(
+    query,
+    {
+      $inc: { emailAttempts: 1 },
+      $set: {
+        lastEmailError: message,
+      },
+    },
+  );
+
+  return {
+    updated: result.modifiedCount ?? 0,
+  };
 };

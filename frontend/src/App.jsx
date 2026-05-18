@@ -7,8 +7,11 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Jobs from "./pages/Jobs";
 import ResumeUpload from "./pages/ResumeUpload";
+import RecruiterDashboard from "./pages/RecruiterDashboard";
+import RecruiterJobs from "./pages/RecruiterJobs";
 import ResumeScore from "./pages/ResumeScore";
 import RecruiterDashboard from "./pages/RecruiterDashboard";
+import ResumeHighlights from "./pages/ResumeHighlights";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(localStorage.getItem("token")));
@@ -38,6 +41,22 @@ export default function App() {
             }
           />
           <Route
+            path="/recruiter-dashboard"
+            element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <RecruiterDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/recruiter-jobs"
+            element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <RecruiterJobs />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/resume-score"
             element={
               <ProtectedRoute isAuthenticated={isAuthenticated}>
@@ -50,6 +69,10 @@ export default function App() {
             element={
               <ProtectedRoute isAuthenticated={isAuthenticated}>
                 <RecruiterDashboard />
+            path="/resume-highlights"
+            element={
+              <ProtectedRoute isAuthenticated={isAuthenticated}>
+                <ResumeHighlights />
               </ProtectedRoute>
             }
           />

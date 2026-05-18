@@ -1,203 +1,217 @@
-# job-align
-A smart automation of hiring process from resume upload to correct job for specific user.
-# Resume Intelligence Engine (ML Pipeline)
+# JobAlign
 
-## Overview
+JobAlign is an end-to-end AI hiring intelligence platform that improves hiring outcomes for both candidates and recruiters. It transforms unstructured resume data into actionable insights, maps candidate profiles to relevant opportunities, and supports recruiter decision-making with transparent, data-backed evaluations.
 
-This project implements a machine learning pipeline that analyzes resumes and matches them with relevant job descriptions using semantic understanding.
 
-The system performs:
+## Table of Contents
 
-* Resume parsing
-* Skill extraction
-* Semantic job matching
-* Skill gap analysis
-* Resume scoring
-* Sentence-level feedback (red/green highlighting with suggestions)
+- [Getting Started](#getting-started)
+- [Configuration](#configuration)
+- [Run the Application](#run-the-application)
+- [Expected Output](#expected-output)
+- [Technology Stack](#technology-stack)
+- [API Highlights](#api-highlights)
+- [Feature Map](#feature-map)
+- [Architecture](#architecture)
+- [File Structure](#file-structure)
+- [Contact](#contact)
 
----
+## Getting Started
 
-## Features
+### Prerequisites
 
-### 1. Resume Processing
+- Node.js (LTS) and npm
+- Python 3.10+
+- MongoDB connection string
+- PowerShell on Windows
 
-* Extract text from PDF resumes
-* Clean and preprocess text
-* Split into sentences
+### Installation
 
-### 2. Skill Extraction
+Clone and move into the project:
 
-* Hybrid approach:
-
-  * Keyword detection
-  * Semantic similarity using embeddings
-
-### 3. Job Matching
-
-* Uses transformer-based embeddings
-* Computes cosine similarity
-* Ranks jobs based on relevance
-
-### 4. Skill Gap Analysis
-
-* Compares resume skills with job requirements
-* Identifies missing skills
-
-### 5. Resume Scoring
-
-* Score based on:
-
-  * Skill match
-  * Semantic similarity
-
-### 6. Resume Feedback (Key Feature)
-
-* Sentence-level evaluation:
-
-  * GREEN → strong match
-  * YELLOW → moderate
-  * RED → weak/irrelevant
-* Suggests improved versions of weak sentences
-
----
-
-## Project Structure
-
-```
-ml/
-│
-├── preprocessing/
-├── embeddings/
-├── extraction/
-├── matching/
-├── scoring/
-├── feedback/
-│
-├── api.py
-├── pipeline.py
-└── config.py
+```bash
+git clone https://github.com/Anushka-Bose/job-align.git
+cd job-align
 ```
 
----
+Then run:
 
-## Installation
+```bash
+# 1) Create and activate Python virtual environment
+python -m venv .venv
+.venv\Scripts\Activate
 
-### 1. Clone repository
-
-```
-git clone <your-repo-url>
-cd <repo-folder>
-```
-
-### 2. Install dependencies
-
-```
+# 2) Install Python dependencies
 pip install -r requirements.txt
-```
-
-### 3. Install spaCy model
-
-```
 python -m spacy download en_core_web_sm
+
+# 3) Install backend dependencies
+cd JobAlign_backend
+npm install
+
+# 4) Install frontend dependencies
+cd ../frontend
+npm install
 ```
 
----
+If PowerShell blocks activation scripts, run:
 
-## Running the Application
-
-### Start FastAPI server
-
-```
-uvicorn ml.api:app --reload
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-### Open API docs
+Then activate again:
 
-```
-http://127.0.0.1:8000/docs
-```
-
----
-
-## API Endpoints
-
-### 1. Analyze Resume (Text)
-
-**POST** `/analyze-text`
-
-Input:
-
-```
-{
-  "resume_text": "...",
-  "jobs": [...]
-}
+```powershell
+.venv\Scripts\Activate
 ```
 
----
+## Configuration
 
-### 2. Analyze Resume (PDF Upload)
+Create `JobAlign_backend/.env`:
 
-**POST** `/analyze-pdf`
-
-* Upload a PDF resume
-* Returns full analysis
-
----
-
-## Sample Output
-
-```
-{
-  "resume_score": 84,
-  "top_jobs": [
-    {
-      "title": "Machine Learning Engineer",
-      "score": 0.89
-    }
-  ],
-  "skill_gap": ["docker", "aws"],
-  "highlights": [
-    {
-      "text": "Worked on projects",
-      "label": "RED",
-      "suggestion": "Built machine learning models using Python"
-    }
-  ]
-}
+```env
+PORT=3000
+MONGO_DB_URL=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
+DEFAULT_JOB_LOCATION=India
+PYTHON_EXECUTABLE=python
+GEMINI_API_KEY=your_gemini_api_key
 ```
 
----
+Optional variables:
 
-## Tech Stack
+```env
+BREVO_API_KEY=your_brevo_api_key
+EMAIL_FROM=no-reply@example.com
+EMAIL_FROM_NAME=Job Align
+MIN_NOTIFICATION_MATCH_SCORE=70
+SCAM_FILTER_USE_LLM=true
+SCAM_FILTER_MODEL=gemini
+SCAM_FILTER_DEBUG=false
+```
 
-* Python
-* FastAPI
-* spaCy
-* Sentence Transformers
-* Scikit-learn
+Create `frontend/.env`:
 
----
+```env
+VITE_API_BASE_URL=http://localhost:3000
+```
 
-## Key Concept
+## Run the Application
 
-The system uses **semantic embeddings** instead of keyword matching, enabling:
+Use two terminals from repository root.
 
-* Better understanding of resume content
-* More accurate job matching
-* Intelligent feedback generation
+Terminal 1 (backend):
 
----
+```bash
+cd JobAlign_backend
+npm run dev
+```
 
-## Future Improvements
+Terminal 2 (frontend):
 
-* LLM-based suggestion engine
-* Advanced skill graph
-* Multi-job comparison
-* Real-time recommendation system
+```bash
+cd frontend
+npm run dev
+```
 
----
+Frontend URL: `http://localhost:5173`
 
-## Author
+## Expected Output
 
-Anushka Bose
+After startup, verify:
+
+- Backend logs show MongoDB connection success and server running on port `3000`.
+- Frontend logs show Vite ready and local URL `http://localhost:5173`.
+- Opening `http://localhost:5173` loads the JobAlign landing page.
+- `GET http://localhost:3000/health` returns:
+
+```json
+{"status":"OK","message":"JobAlign backend is live"}
+```
+
+## Technology Stack
+
+- **Frontend:** React, Vite, Tailwind CSS, React Router
+- **Backend:** Node.js, Express, MongoDB, Mongoose, JWT, Multer
+- **ML/NLP:** Python, spaCy, Sentence Transformers, scikit-learn, PyMuPDF
+- **Integrations:** Remotive Jobs API, optional Google Generative AI support
+
+## API Highlights
+
+- `POST /api/auth/signup` - Register candidate or recruiter
+- `POST /api/auth/login` - Authenticate and return JWT
+- `POST /api/resume/upload` - Upload and process candidate resume
+- `GET /feed/:userId` - Retrieve personalized candidate feed
+- `GET /api/recruiter/candidates/leaderboard` - Retrieve ranked candidates
+- `POST /api/recruiter/candidates/:candidateId/scam-check` - Run authenticity check
+- `GET /api/notifications` - Get current user notifications
+- `PATCH /api/notifications/:notificationId/read` - Mark notification as read
+
+Protected endpoints require `Authorization: Bearer <token>`.
+
+## Feature Map
+
+| Feature | Problem It Solves | Primary Implementation Area |
+|---|---|---|
+| Role-based authentication | Separates candidate and recruiter workflows securely | `frontend/src/pages/Login.jsx`, `JobAlign_backend/routes/authRoute.js` |
+| Resume PDF upload | Converts unstructured resume files into processable input | `frontend/src/pages/ResumeUpload.jsx`, `JobAlign_backend/routes/resumeRoute.js` |
+| Resume analysis and scoring | Gives measurable quality and competency insights | `ml/pipeline.py`, `JobAlign_backend/services/pipelineService.js` |
+| Personalized job feed | Reduces manual job search effort with relevance ranking | `frontend/src/pages/Jobs.jsx`, `JobAlign_backend/routes/feedRoute.js` |
+| Recruiter leaderboard | Speeds shortlisting with ranked candidate visibility | `JobAlign_backend/routes/recruiterRoute.js` |
+| Scam/authenticity check | Helps recruiters detect suspicious resume patterns | `JobAlign_backend/services/scamService.js`, `ml/scam_filtering/scam.py` |
+| Notifications | Alerts users to newly matched opportunities | `frontend/src/components/Navbar.jsx`, `JobAlign_backend/routes/notificationRoute.js` |
+
+## Architecture
+
+JobAlign uses a 3-layer architecture:
+
+- **Frontend (`frontend/`)**: React UI, route protection, and API modules.
+- **Backend (`JobAlign_backend/`)**: Express APIs, middleware, data models, scheduler, and service orchestration.
+- **ML Layer (`ml/`)**: Python NLP pipeline for extraction, scoring, matching, and feedback.
+
+Data flow:
+
+```text
+Frontend -> Express API -> MongoDB
+                    |
+                    -> Python pipeline -> structured analysis -> API response
+```
+
+## File Structure
+
+```text
+job-align/
+|-- frontend/
+|   |-- src/
+|   |   |-- api/
+|   |   |-- components/
+|   |   `-- pages/
+|   `-- package.json
+|-- JobAlign_backend/
+|   |-- controllers/
+|   |-- middlewares/
+|   |-- models/
+|   |-- routes/
+|   |-- services/
+|   |-- app.js
+|   |-- server.js
+|   `-- package.json
+|-- ml/
+|   |-- preprocessing/
+|   |-- extraction/
+|   |-- matching/
+|   |-- scoring/
+|   |-- feedback/
+|   |-- scam_filtering/
+|   `-- pipeline.py
+|-- requirements.txt
+`-- README.md
+```
+
+## Contact
+
+Anushka Bose  
+Email: `anushkabose001@gmail.com`
+
+Project Link: https://github.com/Anushka-Bose/job-align

@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export default function JobCard({
   title,
   company,
@@ -7,7 +9,11 @@ export default function JobCard({
   description,
   redirectUrl,
   searchQuery,
+  showActions = true,
 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const shouldClampDescription = String(description || "").length > 220;
+
   return (
     <article className="group rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20 transition hover:-translate-y-1 hover:border-teal-300/40 hover:shadow-teal-500/10">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -25,25 +31,40 @@ export default function JobCard({
         <span className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2">{type}</span>
       </div>
 
-      <p className="mt-5 leading-7 text-slate-300">{description}</p>
+      <p
+        className={`mt-5 leading-7 text-slate-300 ${
+          shouldClampDescription && !isExpanded ? "line-clamp-4" : ""
+        }`}
+      >
+        {description}
+      </p>
+
+      {shouldClampDescription ? (
+        <button
+          type="button"
+          onClick={() => setIsExpanded((value) => !value)}
+          className="mt-3 text-sm font-semibold text-teal-200 transition hover:text-teal-100"
+        >
+          {isExpanded ? "Show less" : "Show more"}
+        </button>
+      ) : null}
 
       {searchQuery ? (
         <p className="mt-4 text-sm text-teal-200/80">Found via: {searchQuery}</p>
       ) : null}
 
-      <div className="mt-6 flex gap-3">
-        <a
-          href={redirectUrl || "#"}
-          target="_blank"
-          rel="noreferrer"
-          className="rounded-full bg-teal-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
-        >
-          Apply Now
-        </a>
-        <button className="rounded-full border border-white/15 px-5 py-3 font-semibold text-slate-200 transition hover:border-white/30 hover:bg-white/10 hover:text-white">
-          Save Role
-        </button>
-      </div>
+      {showActions ? (
+        <div className="mt-6 flex">
+          <a
+            href={redirectUrl || "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-full bg-teal-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
+          >
+            Apply Now
+          </a>
+        </div>
+      ) : null}
     </article>
   );
 }

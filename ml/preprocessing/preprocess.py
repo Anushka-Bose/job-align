@@ -10,26 +10,66 @@ except OSError:
     print("Please download it using: python -m spacy download en_core_web_sm")
     nlp = None
 
+SECTION_BOUNDARIES = (
+    "career objective",
+    "academic background",
+    "domain skill",
+    "soft skill",
+    "projects seminars",
+    "projects",
+    "co-curricular activities",
+    "extra-curricular activities",
+    "achievements",
+    "nationality",
+    "languages known",
+    "interests"
+)
+
 def clean_text(text: str) -> str:
-    """Clean the text: lowercase, remove junk symbols, and extra whitespace."""
+    """Clean text while preserving resume line boundaries for chunking."""
     if not text:
         return ""
     
-    # Lowercase
     text = text.lower()
-    
-    # Remove junk symbols (keep basic punctuation and words)
-    text = re.sub(r'[^\w\s.,;:!?()-]', ' ', text)
-    
-    # Remove extra whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Keep line breaks because PDF resumes often use them instead of periods.
+    text = re.sub(r'[^\w\s.,;:!?()/@+-]', ' ', text)
+    lines = [re.sub(r'[ \t]+', ' ', line).strip() for line in text.split("\n")]
+    text = "\n".join(line for line in lines if line)
+    for boundary in SECTION_BOUNDARIES:
+        text = re.sub(rf"\s+\b({re.escape(boundary)})\b", r"\n\1", text)
     
     return text
 
 def chunk_sentences(text: str) -> List[str]:
-    """Chunk text into sentences using spaCy."""
+    """Chunk text into resume-safe sentences and bullet-like lines."""
+    lines = [line.strip(" -•\t") for line in text.splitlines() if line.strip()]
+    chunks: List[str] = []
+
+    for line in lines:
+        line = re.sub(r"\s+", " ", line).strip()
+        if not line:
+            continue
+
+        # Split compact PDF text where bullets/headings were extracted inline.
+        parts = re.split(r"\s+(?:o|•|\-)\s+", line)
+        for part in parts:
+            part = part.strip(" -•\t")
+            if not part:
+                continue
+
+            if not nlp:
+                chunks.extend(sent.strip() for sent in re.split(r'[.!?]\s+', part) if sent.strip())
+                continue
+
+            doc = nlp(part)
+            chunks.extend(sent.text.strip() for sent in doc.sents if sent.text.strip())
+
+    if chunks:
+        return chunks
+
     if not nlp:
-        # Simplistic fallback
         return [sent.strip() for sent in re.split(r'[.!?]\s+', text) if sent.strip()]
         
     doc = nlp(text)

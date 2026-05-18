@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import JobCard from "../components/JobCard";
 import { getCandidateJobFeed } from "../api/feed";
 import { getRecruiterLeaderboard, runRecruiterScamCheck } from "../api/recruiter";
 import { getNotifications, markNotificationRead } from "../api/notifications";
+import { getStoredUser } from "../utils/authStorage";
 
 const fallbackJobs = [
   {
@@ -30,38 +32,75 @@ const formatPercentage = (score) => {
   return `${Math.max(0, Math.min(100, Math.round(normalized)))}%`;
 };
 
-const parseStoredUser = () => {
-  try {
-    return JSON.parse(localStorage.getItem("user") || "null");
-  } catch {
+const formatFlag = (value) => (value ? "Available" : "Missing");
+const hasScamSignals = (analysis) =>
+  Number(analysis?.scam_percentage ?? 0) > 25 || (analysis?.scam_indicators || []).length > 0;
+const getScamHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Explanation" : "No Scam Signal Detected");
+const getRiskHeading = (analysis) => (hasScamSignals(analysis) ? "Scam Risk" : "Fraud Check");
+
+const buildCandidateFeedFromUpload = ({ userId, uploadedResume, uploadedAnalysis }) => {
+  if (!uploadedResume && !uploadedAnalysis) {
     return null;
   }
+
+  const topJobs = Array.isArray(uploadedAnalysis?.top_jobs) ? uploadedAnalysis.top_jobs : [];
+
+  return {
+    userId: userId || null,
+    resumeId: uploadedResume?._id || null,
+    analysis: uploadedAnalysis || null,
+    searchQueries: Array.isArray(uploadedAnalysis?.search_keywords) ? uploadedAnalysis.search_keywords : [],
+    resumeSkills: Array.isArray(uploadedAnalysis?.resume_skills) ? uploadedAnalysis.resume_skills : [],
+    totalActiveJobs: topJobs.length,
+    filteredJobs: topJobs.length,
+    jobs: topJobs,
+    needsResumeUpload: false,
+  };
 };
 
 export default function Jobs() {
-  const [candidateFeed, setCandidateFeed] = useState(null);
+  const location = useLocation();
+  const user = useMemo(getStoredUser, []);
+  const token = localStorage.getItem("token");
+  const isRecruiter = user?.role === "recruiter";
+  const uploadedResume = location.state?.uploadedResume || null;
+  const uploadedAnalysis = location.state?.uploadedAnalysis || null;
+  const uploadEmailStatus = location.state?.emailStatus || "";
+  const uploadEmailError = location.state?.emailError || "";
+  const uploadPipelineError = location.state?.pipelineError || "";
+  const effectiveUserId = uploadedResume?.userId || user?.id;
+  const initialCandidateFeed = useMemo(
+    () => buildCandidateFeedFromUpload({ userId: effectiveUserId, uploadedResume, uploadedAnalysis }),
+    [effectiveUserId, uploadedAnalysis, uploadedResume],
+  );
+  const source = new URLSearchParams(location.search).get("source");
+  const shouldPollLatest = source === "upload";
+  const shouldBlockOnDashboardLoad = !initialCandidateFeed;
+
+  const [candidateFeed, setCandidateFeed] = useState(initialCandidateFeed);
   const [recruiterFeed, setRecruiterFeed] = useState(null);
   const [scamChecks, setScamChecks] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(shouldBlockOnDashboardLoad);
   const [error, setError] = useState("");
   const [checkingCandidateId, setCheckingCandidateId] = useState("");
   const [notificationFeed, setNotificationFeed] = useState({ unreadCount: 0, notifications: [] });
-
-  const user = useMemo(parseStoredUser, []);
-  const token = localStorage.getItem("token");
-  const isRecruiter = user?.role === "recruiter";
+  const candidateAnalysis = candidateFeed?.analysis || uploadedAnalysis || null;
+  const needsResumeUpload = !isRecruiter && Boolean(candidateFeed?.needsResumeUpload);
+  const emptyStateTitle = candidateFeed?.emptyState?.title || "Upload your resume to see jobs";
+  const emptyStateMessage = candidateFeed?.emptyState?.message
+    || "Add your latest resume to unlock personalized job matches.";
 
   useEffect(() => {
     let ignore = false;
 
     const load = async () => {
-      if (!token || !user?.id) {
+      if (!token || !effectiveUserId) {
         setError("Please login again to view your dashboard.");
         setLoading(false);
         return;
       }
 
-      setLoading(true);
+      setLoading(shouldBlockOnDashboardLoad);
       setError("");
 
       try {
@@ -73,22 +112,41 @@ export default function Jobs() {
           return;
         }
 
-        const data = await getCandidateJobFeed({
-          userId: user.id,
-          token,
-        });
-        if (!ignore) {
-          setCandidateFeed(data);
-          try {
-            const notifications = await getNotifications({ token });
-            if (!ignore) {
-              setNotificationFeed(notifications);
-            }
-          } catch {
-            if (!ignore) {
-              setNotificationFeed({ unreadCount: 0, notifications: [] });
-            }
+        // Poll backend for job feed data
+        // Pipeline runs async on backend, so we need to poll until data is ready
+        let latestData = null;
+        const maxAttempts = shouldPollLatest ? 120 : 1; // Poll for up to 2 minutes (120 * 1000ms)
+        const pollDelayMs = shouldPollLatest ? 1000 : 0; // Poll every 1 second when waiting for fresh upload
+
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+          latestData = await getCandidateJobFeed({
+            userId: effectiveUserId,
+            token,
+          });
+
+          // Break if we got pipeline analysis data (not just empty jobs)
+          if (
+            latestData?.analysis?.top_jobs
+            || (Array.isArray(latestData?.analysis?.top_jobs) && latestData.analysis.top_jobs.length > 0)
+          ) {
+            break;
           }
+
+          // Break if this is normal page load (not fresh upload polling)
+          if (!shouldPollLatest) {
+            break;
+          }
+
+          // For fresh uploads, continue polling if still processing
+          if (attempt < maxAttempts - 1) {
+            await new Promise((resolve) => {
+              window.setTimeout(resolve, pollDelayMs);
+            });
+          }
+        }
+
+        if (!ignore) {
+          setCandidateFeed(latestData);
         }
       } catch (err) {
         if (!ignore) {
@@ -105,24 +163,72 @@ export default function Jobs() {
     return () => {
       ignore = true;
     };
-  }, [isRecruiter, token, user?.id]);
+  }, [effectiveUserId, isRecruiter, shouldBlockOnDashboardLoad, shouldPollLatest, token, uploadedAnalysis]);
 
-  const candidateJobs = useMemo(() => {
-    const jobs = candidateFeed?.jobs;
-    if (!Array.isArray(jobs) || !jobs.length) {
-      return fallbackJobs;
+  useEffect(() => {
+    let ignore = false;
+
+    if (isRecruiter || !token || !effectiveUserId) {
+      return () => {
+        ignore = true;
+      };
     }
 
-    return jobs.map((job) => ({
+    const loadNotifications = async () => {
+      try {
+        const notifications = await getNotifications({ token });
+        if (!ignore) {
+          setNotificationFeed(notifications);
+        }
+      } catch {
+        if (!ignore) {
+          setNotificationFeed({ unreadCount: 0, notifications: [] });
+        }
+      }
+    };
+
+    loadNotifications();
+    return () => {
+      ignore = true;
+    };
+  }, [effectiveUserId, isRecruiter, token]);
+
+  const candidateJobs = useMemo(() => {
+    if (needsResumeUpload) {
+      return [];
+    }
+
+    const jobs = Array.isArray(candidateFeed?.jobs) && candidateFeed.jobs.length
+      ? candidateFeed.jobs
+      : (
+        Array.isArray(candidateAnalysis?.top_jobs) ? candidateAnalysis.top_jobs : []
+      );
+
+    if (!jobs.length) {
+      return fallbackJobs.map((job) => ({
+        ...job,
+        isFallback: true,
+      }));
+    }
+
+    return jobs.map((job, index) => ({
+      jobId: job.jobId || job.id || job._id || `${job.company || "company"}-${job.title || "job"}-${job.searchQuery || job.search_query || "query"}-${index}`,
       title: job.title || "Matched Role",
       company: job.company || "Recommended Company",
       location: job.location || "Remote",
       type: job.type || "Recommended",
-      match: formatPercentage(job.matchScore),
+      match: formatPercentage(
+        job.matchScore
+        ?? job.score
+        ?? job.adjusted_similarity_score
+        ?? job.similarity_score
+      ),
       description: job.description || "Matched from your uploaded resume and skill profile.",
-      redirectUrl: job.redirectUrl,
+      redirectUrl: job.redirectUrl || job.redirect_url,
+      searchQuery: job.searchQuery || job.search_query,
+      isFallback: false,
     }));
-  }, [candidateFeed]);
+  }, [candidateAnalysis, candidateFeed, needsResumeUpload]);
 
   const averageMatch = useMemo(() => {
     const source = isRecruiter ? recruiterFeed?.candidates || [] : candidateJobs;
@@ -158,8 +264,19 @@ export default function Jobs() {
     }
   };
 
-  const candidateKeywords = candidateFeed?.searchQueries || [];
-  const resumeSkills = candidateFeed?.resumeSkills || [];
+  const candidateKeywords =
+    candidateFeed?.searchQueries
+    || candidateAnalysis?.search_keywords
+    || [];
+  const resumeSkills =
+    candidateFeed?.resumeSkills
+    || candidateAnalysis?.resume_skills
+    || [];
+  const overallResumeScore = Number(candidateAnalysis?.resume_score);
+  const topMatchedJob = candidateAnalysis?.match_summary?.best_job_title
+    || candidateAnalysis?.top_jobs?.[0]?.title
+    || "Not available";
+  const experienceSummary = candidateAnalysis?.match_summary?.message || "Resume analysis is available.";
   const leaderboard = recruiterFeed?.candidates || [];
 
   const handleNotificationOpen = async (notification) => {
@@ -218,7 +335,7 @@ export default function Jobs() {
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
               <p className="text-3xl font-black text-teal-300">
-                {isRecruiter ? recruiterFeed?.totalJobs || 0 : candidateFeed?.totalActiveJobs || candidateJobs.length}
+                {isRecruiter ? recruiterFeed?.totalJobs || 0 : candidateFeed?.totalActiveJobs || 0}
               </p>
               <p className="mt-2 text-sm text-slate-400">
                 {isRecruiter ? "jobs owned by your company" : "jobs considered for your feed"}
@@ -232,7 +349,7 @@ export default function Jobs() {
             </div>
             <div className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
               <p className="text-3xl font-black text-cyan-300">
-                {isRecruiter ? leaderboard.length : candidateFeed?.filteredJobs ?? candidateJobs.length}
+                {isRecruiter ? leaderboard.length : candidateFeed?.filteredJobs ?? 0}
               </p>
               <p className="mt-2 text-sm text-slate-400">
                 {isRecruiter ? "eligible candidates on the board" : "ranked roles returned"}
@@ -247,6 +364,19 @@ export default function Jobs() {
           </p>
         ) : null}
       </section>
+
+      {!isRecruiter && source === "upload" && uploadPipelineError ? (
+        <section className="mt-8 rounded-[1.5rem] border border-rose-300/20 bg-rose-400/10 p-4 text-sm text-rose-100">
+          Resume upload completed, but analysis returned an error: {uploadPipelineError}
+        </section>
+      ) : null}
+
+      {!isRecruiter && source === "upload" && uploadEmailStatus && !["sent", "queued"].includes(uploadEmailStatus) ? (
+        <section className="mt-8 rounded-[1.5rem] border border-orange-300/20 bg-orange-400/10 p-4 text-sm text-orange-100">
+          Resume analysis finished, but the email step returned <strong>{uploadEmailStatus}</strong>
+          {uploadEmailError ? `: ${uploadEmailError}` : "."}
+        </section>
+      ) : null}
 
       {isRecruiter ? (
         <section className="mt-8 grid gap-5">
@@ -322,35 +452,125 @@ export default function Jobs() {
                       ) : (
                         <>
                           <div className="grid gap-4 md:grid-cols-2">
-                            <div>
-                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Scam risk</p>
-                              <p className="mt-2 text-xl font-bold text-orange-200">
+                            <div className="rounded-2xl border border-orange-300/20 bg-orange-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-orange-100/70">{getRiskHeading(llmAnalysis)}</p>
+                              <p className="mt-2 text-xl font-bold text-orange-100">
                                 {llmAnalysis?.scam_risk_level || "Unavailable"}
                               </p>
-                              <p className="mt-2 text-sm text-slate-300">
+                              <p className="mt-2 text-sm font-semibold text-orange-200">
+                                {llmAnalysis?.scam_percentage ?? "N/A"}%
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-cyan-100/70">AI generation risk</p>
+                              <p className="mt-2 text-xl font-bold text-cyan-100">
+                                {llmAnalysis?.ai_risk_level || "Unavailable"}
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-cyan-200">
+                                {llmAnalysis?.ai_generated_percentage ?? "N/A"}%
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">{getScamHeading(llmAnalysis)}</p>
+                              <p className="mt-3 text-sm text-slate-300">
                                 {llmAnalysis?.scam_reasoning || "No scam reasoning returned."}
                               </p>
                             </div>
-                            <div>
-                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">AI generation risk</p>
-                              <p className="mt-2 text-xl font-bold text-cyan-200">
-                                {llmAnalysis?.ai_generated_percentage ?? "N/A"}%
-                              </p>
-                              <p className="mt-2 text-sm text-slate-300">
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">AI explanation</p>
+                              <p className="mt-3 text-sm text-slate-300">
                                 {llmAnalysis?.ai_reasoning || "No AI-generation reasoning returned."}
                               </p>
                             </div>
                           </div>
 
-                          <div className="mt-4 flex flex-wrap gap-3">
-                            {(llmAnalysis?.scam_indicators || []).map((indicator) => (
-                              <span
-                                key={`${candidate.candidateId}-${indicator}`}
-                                className="rounded-full border border-rose-300/20 bg-rose-400/10 px-4 py-2 text-sm text-rose-100"
-                              >
-                                {indicator}
-                              </span>
-                            ))}
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Resume facts</p>
+                              <div className="mt-3 grid gap-2 text-sm text-slate-300">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Total words</span>
+                                  <span className="font-semibold text-white">{scamCheck?.total_words ?? "N/A"}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Email</span>
+                                  <span className="font-semibold text-white">{formatFlag(scamCheck?.contact_info?.email)}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Phone</span>
+                                  <span className="font-semibold text-white">{formatFlag(scamCheck?.contact_info?.phone)}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span>Links</span>
+                                  <span className="font-semibold text-white">{formatFlag(scamCheck?.contact_info?.links)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Sections found</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {(scamCheck?.sections_found || []).length ? (
+                                  scamCheck.sections_found.map((section) => (
+                                    <span
+                                      key={`${candidate.candidateId}-${section}`}
+                                      className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200"
+                                    >
+                                      {section}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-sm text-slate-200">
+                                    No standard sections detected
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-rose-100/80">Scam indicators</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {(llmAnalysis?.scam_indicators || []).length ? (
+                                  llmAnalysis.scam_indicators.map((indicator) => (
+                                    <span
+                                      key={`${candidate.candidateId}-${indicator}`}
+                                      className="rounded-full border border-rose-300/20 bg-rose-400/10 px-4 py-2 text-sm text-rose-100"
+                                    >
+                                      {indicator}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="rounded-full border border-rose-300/20 bg-rose-400/10 px-4 py-2 text-sm text-rose-100">
+                                    No scam indicators flagged
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-cyan-300/20 bg-cyan-400/10 p-4">
+                              <p className="text-sm uppercase tracking-[0.2em] text-cyan-100/80">AI indicators</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {(llmAnalysis?.ai_indicators || []).length ? (
+                                  llmAnalysis.ai_indicators.map((indicator) => (
+                                    <span
+                                      key={`${candidate.candidateId}-ai-${indicator}`}
+                                      className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100"
+                                    >
+                                      {indicator}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-100">
+                                    No AI indicators flagged
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </>
                       )}
@@ -367,7 +587,72 @@ export default function Jobs() {
         </section>
       ) : (
         <>
-          <section className="mt-8 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
+          {needsResumeUpload ? (
+            <section className="mt-8 rounded-[1.75rem] border border-dashed border-teal-300/30 bg-teal-400/10 p-8">
+              <p className="text-sm font-semibold uppercase tracking-[0.24em] text-teal-100/80">
+                Resume Needed
+              </p>
+              <h2 className="mt-3 text-3xl font-black text-white">{emptyStateTitle}</h2>
+              <p className="mt-4 max-w-2xl text-base leading-7 text-slate-200">
+                {emptyStateMessage}
+              </p>
+              <Link
+                to="/upload"
+                className="mt-6 inline-flex items-center justify-center rounded-full bg-teal-300 px-6 py-3 font-semibold text-slate-950 transition hover:bg-teal-200"
+              >
+                Upload Resume
+              </Link>
+            </section>
+          ) : null}
+
+          {!needsResumeUpload && candidateAnalysis ? (
+            <section className="mt-8 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
+                    Resume Analysis Snapshot
+                  </p>
+                  <p className="mt-2 text-sm text-slate-300">
+                    Your latest uploaded resume already has backend analysis available.
+                  </p>
+                </div>
+                <Link
+                  to="/resume-score"
+                  state={{ uploadedAnalysis: candidateAnalysis }}
+                  className="inline-flex items-center justify-center rounded-full bg-teal-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-teal-300"
+                >
+                  View Resume Analysis
+                </Link>
+                <Link
+                  to="/resume-highlights"
+                  state={{ uploadedAnalysis: candidateAnalysis }}
+                  className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.04] px-5 py-3 font-semibold text-white transition hover:border-teal-300/40 hover:bg-white/[0.08]"
+                >
+                  View Highlights
+                </Link>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Resume score</p>
+                  <p className="mt-2 text-3xl font-black text-teal-300">
+                    {Number.isFinite(overallResumeScore) ? overallResumeScore : "N/A"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Top match</p>
+                  <p className="mt-2 text-lg font-semibold text-white">{topMatchedJob}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Experience fit</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">{experienceSummary}</p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {!needsResumeUpload ? (
+            <section className="mt-8 rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
@@ -411,9 +696,11 @@ export default function Jobs() {
                 <p className="text-slate-400">No job notifications yet for your uploaded resume.</p>
               )}
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+          {!needsResumeUpload ? (
+            <section className="mt-8 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-[1.75rem] border border-white/10 bg-slate-950/70 p-6">
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">
                 Search Keywords
@@ -453,13 +740,23 @@ export default function Jobs() {
                 )}
               </div>
             </div>
-          </section>
+            </section>
+          ) : null}
 
-          <section className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+          {!needsResumeUpload ? (
+            <section className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+            {!candidateFeed?.jobs?.length && (
+              (Array.isArray(candidateAnalysis?.top_jobs) && candidateAnalysis.top_jobs.length)
+            ) ? (
+              <div className="md:col-span-2 rounded-[1.5rem] border border-teal-300/20 bg-teal-400/10 p-4 text-sm text-teal-100">
+                Showing jobs from your latest uploaded resume analysis.
+              </div>
+            ) : null}
             {candidateJobs.map((job) => (
-              <JobCard key={`${job.company}-${job.title}`} {...job} />
+              <JobCard key={job.jobId} {...job} />
             ))}
-          </section>
+            </section>
+          ) : null}
         </>
       )}
     </main>

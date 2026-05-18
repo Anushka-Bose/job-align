@@ -6,13 +6,27 @@ from typing import List, Dict, Any
 from google import genai
 
 # ================= CONFIG =================
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-MODEL_NAME = "gemini-2.5-flash"
+client = None
+MODEL_NAME = "gemini-3.1-flash-lite"
 BACKOFF_SECONDS = [5, 10, 20]
 BATCH_SIZE = 8
 _llm_quota_exhausted = False
+LOW_VALUE_TERMS = (
+    "recitation", "art competition", "school magazine",
+    "nationality", "languages known", "interests"
+)
 
 # ================= HELPERS =================
+def _get_client():
+    global client
+    if client is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is not configured.")
+        client = genai.Client(api_key=api_key)
+    return client
+
+
 def _is_hard_quota_exhausted(error: Exception) -> bool:
     msg = str(error).lower()
     return (
@@ -40,24 +54,54 @@ def _extract_json_block(content: str) -> str:
 
 
 
-def _is_valid_rewrite(original: str, candidate: str) -> bool:
+def _clean_suggestion(candidate: str) -> str:
+    text = re.sub(r"\s+", " ", (candidate or "").strip())
+    return text.strip(" \t\r\n-")
+
+
+def _fallback_suggestion(original: str, job_desc: str = "", missing_competencies: List[str] = None) -> str:
+    missing_competencies = missing_competencies or []
+    lowered = original.lower()
+    if any(term in lowered for term in LOW_VALUE_TERMS):
+        return (
+            "Deprioritize or remove this line unless it demonstrates a role-relevant "
+            "technical contribution, leadership result, or measurable impact."
+        )
+
+    focus = ", ".join(str(item) for item in missing_competencies[:3] if str(item).strip())
+    if focus:
+        return (
+            "Tie this line more directly to the job by adding evidence for "
+            f"{focus}, and rewrite it with a specific action, tool, and outcome."
+        )
+    if job_desc:
+        return (
+            "Make this line more job-aligned by naming the relevant skill or tool, "
+            "then add a clear result or measurable impact."
+        )
+    return "Rewrite this line with a stronger action verb, concrete skill, and measurable result."
+
+
+def _is_valid_suggestion(original: str, candidate: str) -> bool:
     if not candidate:
         return False
 
     orig = original.strip().lower()
-    cand = candidate.strip().lower()
+    cand = _clean_suggestion(candidate).lower()
 
     # identical or near identical
     if cand == orig:
         return False
 
-    if abs(len(cand) - len(orig)) < 5:
+    if len(cand.split()) < 8:
         return False
 
     # reject generic junk
     banned = [
-        "improve", "could be strengthened", "this sentence",
-        "add impact", "consider adding"
+        "this sentence is bad",
+        "not relevant",
+        "needs improvement",
+        "could be better"
     ]
     if any(b in cand for b in banned):
         return False
@@ -73,7 +117,7 @@ def _call_with_retry(prompt: str) -> str:
 
     for attempt in range(len(BACKOFF_SECONDS) + 1):
         try:
-            response = client.models.generate_content(
+            response = _get_client().models.generate_content(
                 model=MODEL_NAME,
                 contents=prompt
             )
@@ -108,22 +152,22 @@ def _build_prompt(entries: List[Dict[str, Any]]) -> str:
         })
 
     return f"""
-You are a resume rewriting engine.
+You are a precise resume improvement engine.
 
 TASK:
-Rewrite each sentence to improve clarity, strength, and impact.
+For each weak resume sentence, write a concrete improvement suggestion that is specific to the sentence and the target job.
 
 RULES:
 - Output ONLY valid JSON:
-  {{"rewrites":[{{"id":0,"rewritten":"..."}}]}}
-- One sentence per rewrite
+  {{"suggestions":[{{"id":0,"suggestion":"..."}}]}}
+- One suggestion per input sentence
 - Keep ids unchanged
 - Use ONLY given sentence + context
-- You MAY rephrase and strengthen wording
-- You MAY infer soft impact (e.g. improved efficiency, better UX)
+- Explain what to change and include a stronger suggested rewrite when possible
+- You MAY infer soft impact only when it follows from the sentence/context
 - DO NOT invent numbers, tools, or experiences
-- If no meaningful improvement is possible, return original
-- NEVER output advice
+- Keep each suggestion under 45 words
+- Do not give generic advice; refer to the sentence content and job fit
 
 INPUT:
 {json.dumps(payload, ensure_ascii=False)}
@@ -140,7 +184,14 @@ def generate_suggestions_batch(
     if not entries:
         return []
 
-    results = [e["sentence"] for e in entries]
+    results = [
+        _fallback_suggestion(
+            e.get("sentence", ""),
+            e.get("job_desc", ""),
+            e.get("missing_competencies", [])
+        )
+        for e in entries
+    ]
 
     batch_size = max(1, min(8, batch_size))
 
@@ -160,30 +211,41 @@ def generate_suggestions_batch(
 
             parsed = json.loads(content)
 
-            if "rewrites" not in parsed:
-                raise ValueError("Missing rewrites key")
+            suggestion_items = parsed.get("suggestions", parsed.get("rewrites"))
+            if suggestion_items is None:
+                raise ValueError("Missing suggestions key")
 
-            rewrites = parsed["rewrites"]
-
-            id_to_rewrite = {}
-            for item in rewrites:
-                if isinstance(item, dict) and "id" in item and "rewritten" in item:
-                    id_to_rewrite[int(item["id"])] = str(item["rewritten"]).strip()
+            id_to_suggestion = {}
+            for item in suggestion_items:
+                if not isinstance(item, dict) or "id" not in item:
+                    continue
+                suggestion = item.get("suggestion", item.get("rewritten", ""))
+                id_to_suggestion[int(item["id"])] = _clean_suggestion(str(suggestion))
 
             # -------- Apply results --------
             for local_idx, original in enumerate(originals):
                 global_idx = start + local_idx
 
-                candidate = id_to_rewrite.get(local_idx, "")
+                candidate = id_to_suggestion.get(local_idx, "")
 
-                if _is_valid_rewrite(original, candidate):
+                if _is_valid_suggestion(original, candidate):
                     results[global_idx] = candidate
                 else:
-                    results[global_idx] = original
+                    entry = entries[global_idx]
+                    results[global_idx] = _fallback_suggestion(
+                        original,
+                        entry.get("job_desc", ""),
+                        entry.get("missing_competencies", [])
+                    )
 
         except Exception:
             for local_idx, original in enumerate(originals):
-                results[start + local_idx] = original
+                entry = entries[start + local_idx]
+                results[start + local_idx] = _fallback_suggestion(
+                    original,
+                    entry.get("job_desc", ""),
+                    entry.get("missing_competencies", [])
+                )
 
     return results
 

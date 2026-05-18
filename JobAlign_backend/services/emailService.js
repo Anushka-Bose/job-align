@@ -1,67 +1,110 @@
-import nodemailer from "nodemailer";
+import axios from "axios";
 
-const isMailEnabled = () =>
-  Boolean(
-    process.env.SMTP_HOST &&
-    process.env.SMTP_PORT &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS &&
-    process.env.EMAIL_FROM,
-  );
+const BREVO_EMAIL_API_URL = "https://api.brevo.com/v3/smtp/email";
+const MAX_TOP_JOB_EMAIL_COUNT = 5;
+
+const getBrevoApiKey = () => process.env.BREVO_API_KEY || process.env.SENDINBLUE_API_KEY || "";
+const getSenderAddress = () => process.env.EMAIL_FROM || "";
+const getSenderName = () => process.env.EMAIL_FROM_NAME || "Job Align";
 
 const getMailConfigStatus = () => ({
-  smtpHost: Boolean(process.env.SMTP_HOST),
-  smtpPort: Boolean(process.env.SMTP_PORT),
-  smtpUser: Boolean(process.env.SMTP_USER),
-  smtpPass: Boolean(process.env.SMTP_PASS),
-  emailFrom: Boolean(process.env.EMAIL_FROM),
+  hasApiKey: Boolean(getBrevoApiKey()),
+  emailFrom: getSenderAddress(),
+  emailFromName: getSenderName(),
 });
 
-let transporter = null;
+const normalizeTopJobsForEmail = (jobs = []) =>
+  (Array.isArray(jobs) ? jobs : []).slice(0, MAX_TOP_JOB_EMAIL_COUNT).map((job) => {
+    const rawScore = typeof job?.score === "number"
+      ? job.score
+      : (typeof job?.similarity_score === "number" ? job.similarity_score : null);
+    const normalizedScore = typeof rawScore === "number"
+      ? (rawScore <= 1 ? Math.round(rawScore * 100) : Math.round(rawScore))
+      : null;
 
-const getTransporter = () => {
-  if (!isMailEnabled()) {
-    return null;
+    return {
+      title: job?.title || "Matched role",
+      company: job?.company || "Recommended company",
+      location: job?.location || "Remote / Unspecified",
+      score: normalizedScore,
+      url: job?.redirect_url || job?.redirectUrl || job?.url || job?.link || "",
+    };
+  });
+
+const sendEmail = async ({ to, toName = "", subject, text, html }) => {
+  const apiKey = getBrevoApiKey();
+  const from = getSenderAddress();
+
+  if (!apiKey || !to || !from) {
+    const result = {
+      skipped: true,
+      reason: !to ? "recipient_missing" : (!from ? "sender_missing" : "brevo_api_not_configured"),
+      configStatus: getMailConfigStatus(),
+    };
+    console.warn("sendEmail skipped", result);
+    return result;
   }
 
-  if (!transporter) {
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: String(process.env.SMTP_SECURE || "false").toLowerCase() === "true",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+  try {
+    const response = await axios.post(
+      BREVO_EMAIL_API_URL,
+      {
+        sender: {
+          name: getSenderName(),
+          email: from,
+        },
+        to: [
+          {
+            email: to,
+            ...(toName ? { name: toName } : {}),
+          },
+        ],
+        subject,
+        htmlContent: html,
+        textContent: text,
       },
-    });
-  }
+      {
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json",
+          "api-key": apiKey,
+        },
+        timeout: 20000,
+      },
+    );
 
-  return transporter;
+    return {
+      skipped: false,
+      messageId: response?.data?.messageId || "",
+      accepted: [to],
+      rejected: [],
+    };
+  } catch (error) {
+    const brevoPayload = error?.response?.data;
+    if (brevoPayload) {
+      console.error("Brevo API error:", brevoPayload);
+    } else {
+      console.error("Brevo API request failed:", error?.message || error);
+    }
+    throw new Error(
+      brevoPayload?.message || error?.message || "Failed to send email via Brevo API",
+    );
+  }
 };
 
 export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, matchedSkills = [] }) => {
-  const mailer = getTransporter();
-  if (!mailer || !to) {
-    return {
-      skipped: true,
-      reason: !to ? "recipient_missing" : "mailer_not_configured",
-      configStatus: getMailConfigStatus(),
-      recipientPresent: Boolean(to),
-    };
-  }
-
   const skillsLine = matchedSkills.length
     ? matchedSkills.join(", ")
-    : "New Job Alerts!!!!.";
+    : "New Job Alerts!!!!";
 
-  const info = await mailer.sendMail({
-    from: process.env.EMAIL_FROM,
+  const result = await sendEmail({
     to,
+    toName: candidateName || "",
     subject: `New matching job: ${job.title} at ${job.company}`,
     text: [
       `Hi ${candidateName || "there"},`,
       "",
-      `A new job matching your uploaded resume was found:`,
+      "A new job matching your uploaded resume was found:",
       `${job.title} at ${job.company}`,
       `Location: ${job.location || "Remote / Unspecified"}`,
       `Match score: ${matchScore}%`,
@@ -88,18 +131,38 @@ export const sendJobMatchEmail = async ({ to, candidateName, job, matchScore, ma
     `,
   });
 
-  const result = {
-    skipped: false,
-    messageId: info.messageId || null,
-    accepted: Array.isArray(info.accepted) ? info.accepted : [],
-    rejected: Array.isArray(info.rejected) ? info.rejected : [],
-    response: info.response || null,
-  };
-  console.log("Job match email result:", result);
+  if (!result.skipped) {
+    console.log("Job match email sent via Brevo API:", result);
+  }
+
   return result;
 };
 
-export const isEmailConfigured = () => isMailEnabled();
+export const isEmailConfigured = () => Boolean(getBrevoApiKey() && getSenderAddress());
+export const getEmailConfigStatus = () => getMailConfigStatus();
+
+export const verifyEmailTransport = async () => {
+  if (!getBrevoApiKey()) {
+    return {
+      ok: false,
+      reason: "brevo_api_not_configured",
+      configStatus: getMailConfigStatus(),
+    };
+  }
+
+  if (!getSenderAddress()) {
+    return {
+      ok: false,
+      reason: "sender_missing",
+      configStatus: getMailConfigStatus(),
+    };
+  }
+
+  return {
+    ok: true,
+    configStatus: getMailConfigStatus(),
+  };
+};
 
 export const sendTopJobMatchesEmail = async ({
   to,
@@ -107,43 +170,11 @@ export const sendTopJobMatchesEmail = async ({
   jobs = [],
   resumeScore = null,
 }) => {
-  const mailer = getTransporter();
   if (!Array.isArray(jobs) || !jobs.length) {
-    return {
-      skipped: true,
-      reason: "no_jobs",
-      configStatus: getMailConfigStatus(),
-      recipientPresent: Boolean(to),
-      jobCount: Array.isArray(jobs) ? jobs.length : 0,
-    };
+    return { skipped: true, reason: "no_jobs" };
   }
 
-  if (!mailer || !to) {
-    return {
-      skipped: true,
-      reason: !to ? "recipient_missing" : "mailer_not_configured",
-      configStatus: getMailConfigStatus(),
-      recipientPresent: Boolean(to),
-      jobCount: jobs.length,
-    };
-  }
-
-  const summarizedJobs = jobs.slice(0, 3).map((job) => {
-    const rawScore = typeof job?.score === "number"
-      ? job.score
-      : (typeof job?.similarity_score === "number" ? job.similarity_score : null);
-    const normalizedScore = typeof rawScore === "number"
-      ? (rawScore <= 1 ? Math.round(rawScore * 100) : Math.round(rawScore))
-      : null;
-
-    return {
-      title: job?.title || "Matched role",
-      company: job?.company || "Recommended company",
-      location: job?.location || "Remote / Unspecified",
-      score: normalizedScore,
-      url: job?.redirect_url || job?.redirectUrl || "",
-    };
-  });
+  const summarizedJobs = normalizeTopJobsForEmail(jobs);
 
   const textBlocks = summarizedJobs.map((job, index) => [
     `${index + 1}. ${job.title} at ${job.company}`,
@@ -161,12 +192,14 @@ export const sendTopJobMatchesEmail = async ({
     </div>
   `).join("");
 
-  const info = await mailer.sendMail({
-    from: process.env.EMAIL_FROM,
+  return await sendEmail({
     to,
+    toName: candidateName || "",
     subject: "Your top matched jobs from Job Align",
     text: [
       `Hi ${candidateName || "there"},`,
+      "",
+      "New Job Alerts!!!!",
       "",
       "Your resume was analyzed successfully. Here are your top matched jobs:",
       "",
@@ -178,6 +211,7 @@ export const sendTopJobMatchesEmail = async ({
     html: `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
         <p>Hi ${candidateName || "there"},</p>
+        <p style="font-size: 18px; font-weight: 700; color: #0f766e; margin: 0 0 12px;">New Job Alerts!!!!</p>
         <p>Your resume was analyzed successfully. Here are your top matched jobs:</p>
         ${htmlBlocks}
         ${resumeScore !== null ? `<p style="margin-top: 16px;">Resume score for the top role: <strong>${resumeScore}</strong></p>` : ""}
@@ -185,14 +219,17 @@ export const sendTopJobMatchesEmail = async ({
       </div>
     `,
   });
+};
 
-  const result = {
-    skipped: false,
-    messageId: info.messageId || null,
-    accepted: Array.isArray(info.accepted) ? info.accepted : [],
-    rejected: Array.isArray(info.rejected) ? info.rejected : [],
-    response: info.response || null,
-  };
-  console.log("Top job matches email result:", result);
-  return result;
+export const sendResumeTopJobsEmail = async ({ user = null, resume = null }) => {
+  const persistedTopJobs = Array.isArray(resume?.pipelineResult?.top_jobs)
+    ? resume.pipelineResult.top_jobs
+    : [];
+
+  return await sendTopJobMatchesEmail({
+    to: user?.email || "",
+    candidateName: user?.name || "",
+    jobs: persistedTopJobs,
+    resumeScore: resume?.pipelineResult?.resume_score ?? resume?.score ?? null,
+  });
 };

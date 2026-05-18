@@ -1,0 +1,12 @@
+:{$PORT}
+
+root * /srv
+encode gzip zstd
+file_server
+
+@spa {
+  not path /assets/*
+  not file
+}
+
+rewrite @spa /index.html

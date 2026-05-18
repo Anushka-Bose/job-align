@@ -48,6 +48,7 @@ export default function Login({ setIsAuthenticated }) {
   const handleLogin = async () => {
     try {
       const data = await login({ email, password });
+      const destination = "/";
 
       localStorage.setItem("token", data.token);
       localStorage.setItem(
